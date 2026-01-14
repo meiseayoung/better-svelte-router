@@ -47,8 +47,8 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/user/better-svelte-router"
+    "url": "https://github.com/meiseayoung/better-svelte-router"
   },
-  "author": "",
+  "author": "meiseayoung",
   "license": "MIT"
 }
