@@ -264,7 +264,12 @@ export function findMatchingRoutes(
     const regexp = getRegexp(fullPath);
     
     // Check if this route is part of the path
-    if (regexp.test(normalizedPathname) || normalizedPathname.startsWith(fullPath)) {
+    // startsWith must respect path segment boundaries to avoid
+    // e.g. '/registered' matching '/register'
+    const isSegmentPrefix =
+      normalizedPathname === fullPath ||
+      normalizedPathname.startsWith(fullPath + '/');
+    if (regexp.test(normalizedPathname) || isSegmentPrefix) {
       const matchedRoute: MatchedRoute = {
         route,
         path: fullPath,
