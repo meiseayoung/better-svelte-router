@@ -19,7 +19,7 @@
 
   const { routes, prefix = '', error: errorSnippet, loading: loadingSnippet }: Props = $props();
 
-  /** Regex to detect lazy import functions */
+  /** Regex to detect lazy import functions (fast path) */
   const hasImportReg = /import\s*\(/;
 
   /** Cache for lazy component promises to prevent re-fetching */
@@ -27,13 +27,24 @@
 
   /**
    * Checks if a component is a lazy-loaded component.
+   *
+   * Detection strategy:
+   * 1. Fast path: the function source still contains a dynamic `import(...)` call.
+   * 2. Robust fallback: arity. Svelte 5 components and snippets are always invoked
+   *    with at least one argument (`$$anchor`), so their compiled functions declare
+   *    arity >= 1. A lazy route loader is conventionally `() => import('...')`, a
+   *    zero-arg function. Relying on arity survives bundlers (Vite/webpack/rollup)
+   *    that rewrite `import(...)` into helpers such as `__vite_ssr_dynamic_import__`,
+   *    which would otherwise defeat the source-string check and cause the component
+   *    to silently render nothing.
+   *
    * @param component - The component to check
    * @returns True if the component is a lazy import function
    */
   function isLazyComponent(component: unknown): component is LazyComponent {
     if (typeof component !== 'function') return false;
-    const componentString = component.toString();
-    return hasImportReg.test(componentString);
+    if (hasImportReg.test(component.toString())) return true;
+    return component.length === 0;
   }
 
   /**

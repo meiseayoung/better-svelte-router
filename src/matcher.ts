@@ -18,15 +18,37 @@ const regexpCache = new Map<string, RegExp>();
 const keysCache = new Map<string, string[]>();
 
 /**
+ * Detects catch-all wildcard patterns ('*', '/*', or '/**').
+ * These are commonly used for "not found" routes. path-to-regexp v8 no longer
+ * accepts a bare '*' (it requires a named wildcard like '/*splat'), and would
+ * throw "Missing parameter name". We handle these patterns ourselves so existing
+ * configs using '*' keep working.
+ * @param path - The normalized path pattern
+ * @returns True if the pattern is a catch-all wildcard
+ */
+function isCatchAll(path: string): boolean {
+  return path === '*' || path === '/*' || path === '/**';
+}
+
+/** Regexp that matches any pathname (used for catch-all routes). */
+const MATCH_ANY = /^.*$/;
+
+/**
  * Gets or creates a cached RegExp for the given path pattern.
  * @param path - The path pattern to compile
  * @returns The compiled RegExp
  */
 function getRegexp(path: string): RegExp {
   if (!regexpCache.has(path)) {
-    const { regexp, keys } = pathToRegexp(path);
-    regexpCache.set(path, regexp);
-    keysCache.set(path, keys.map(k => k.name));
+    if (isCatchAll(path)) {
+      // Catch-all routes match any pathname and expose no parameters.
+      regexpCache.set(path, MATCH_ANY);
+      keysCache.set(path, []);
+    } else {
+      const { regexp, keys } = pathToRegexp(path);
+      regexpCache.set(path, regexp);
+      keysCache.set(path, keys.map(k => k.name));
+    }
   }
   return regexpCache.get(path)!;
 }
