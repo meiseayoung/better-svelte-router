@@ -262,13 +262,19 @@ export function findMatchingRoutes(
     }
 
     const regexp = getRegexp(fullPath);
-    
-    // Check if this route is part of the path
+    const hasChildren = !!route.children && route.children.length > 0;
+
+    // A route is a "segment prefix" of the pathname only when it has children
+    // to recurse into. This allows a parent route (e.g. '/events') to remain in
+    // the matched chain while a child renders. For leaf routes (no children) we
+    // require an exact regexp match, otherwise '/events' would incorrectly match
+    // a sibling like '/events/new'.
     // startsWith must respect path segment boundaries to avoid
-    // e.g. '/registered' matching '/register'
+    // e.g. '/registered' matching '/register'.
     const isSegmentPrefix =
-      normalizedPathname === fullPath ||
-      normalizedPathname.startsWith(fullPath + '/');
+      hasChildren &&
+      (normalizedPathname === fullPath ||
+        normalizedPathname.startsWith(fullPath + '/'));
     if (regexp.test(normalizedPathname) || isSegmentPrefix) {
       const matchedRoute: MatchedRoute = {
         route,
