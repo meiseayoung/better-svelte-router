@@ -307,3 +307,92 @@ describe('Parameter Extraction', () => {
     );
   });
 });
+
+describe('Nested prefix matching (parameterized parents)', () => {
+  beforeEach(() => {
+    clearMatcherCache();
+  });
+
+  /**
+   * A parameterized parent route with children must remain in the matched
+   * chain so its descendants can render, and the deepest match must carry the
+   * full set of params.
+   */
+  it('keeps a parameterized parent in the chain while a child matches', () => {
+    const routes: IRoute[] = [
+      {
+        path: 'events/:eventId',
+        component: MockComponent,
+        children: [{ path: ':reportName', component: MockComponent }],
+      },
+    ];
+
+    const matches = findMatchingRoutes(routes, '/events/evt/my-report');
+
+    expect(matches.map((m) => m.path)).toEqual([
+      '/events/:eventId',
+      '/events/:eventId/:reportName',
+    ]);
+    // Leaf carries all params.
+    expect(matches[matches.length - 1].params).toEqual({
+      eventId: 'evt',
+      reportName: 'my-report',
+    });
+    // Parent recovers only its own param (not the child's).
+    expect(matches[0].params).toEqual({ eventId: 'evt' });
+  });
+
+  /**
+   * A parameterized parent whose children do NOT match must not swallow the
+   * pathname and shadow a later sibling that matches exactly.
+   */
+  it('does not let a prefix parent shadow a later deeper sibling', () => {
+    const routes: IRoute[] = [
+      {
+        path: 'shop/:category',
+        component: MockComponent,
+        children: [{ path: 'items', component: MockComponent }],
+      },
+      { path: 'shop/sale/today', component: MockComponent },
+    ];
+
+    const matches = findMatchingRoutes(routes, '/shop/sale/today');
+
+    expect(matches.map((m) => m.path)).toEqual(['/shop/sale/today']);
+  });
+
+  /**
+   * A prefix parent with no matching descendant for a deeper unknown path
+   * should not produce a parent-only chain (which would render an empty outlet).
+   */
+  it('returns no match when a prefix parent has no matching descendant', () => {
+    const routes: IRoute[] = [
+      {
+        path: 'events/:eventId',
+        component: MockComponent,
+        children: [{ path: 'report', component: MockComponent }],
+      },
+    ];
+
+    const matches = findMatchingRoutes(routes, '/events/evt/unknown/deep');
+
+    expect(matches).toEqual([]);
+  });
+
+  /**
+   * Static prefix parents continue to work and respect segment boundaries.
+   */
+  it('matches a static prefix parent with a matching child', () => {
+    const routes: IRoute[] = [
+      {
+        path: 'events',
+        component: MockComponent,
+        children: [{ path: 'new', component: MockComponent }],
+      },
+    ];
+
+    const matches = findMatchingRoutes(routes, '/events/new');
+
+    expect(matches.map((m) => m.path)).toEqual(['/events', '/events/new']);
+  });
+});

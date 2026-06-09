@@ -18,6 +18,13 @@ const regexpCache = new Map<string, RegExp>();
 const keysCache = new Map<string, string[]>();
 
 /**
+ * Cache for prefix-matching regular expressions used to determine whether a
+ * parameterized parent route is a prefix of the current pathname.
+ * Key: normalized path pattern, Value: compiled prefix RegExp
+ */
+const prefixRegexpCache = new Map<string, RegExp>();
+
+/**
  * Detects catch-all wildcard patterns ('*', '/*', or '/**').
  * These are commonly used for "not found" routes. path-to-regexp v8 no longer
  * accepts a bare '*' (it requires a named wildcard like '/*splat'), and would
@@ -63,6 +70,36 @@ function getKeys(path: string): string[] {
     getRegexp(path); // This will populate the cache
   }
   return keysCache.get(path) || [];
+}
+
+/**
+ * Gets or creates a cached prefix-matching RegExp for the given path pattern.
+ * Converts the exact-match regexp produced by path-to-regexp (which ends with
+ * `(?:\/$)?$`) into one that matches at segment boundaries (`(?:\/|$)`), so a
+ * parameterized parent route (e.g. '/events/:eventId') can be detected as a
+ * prefix of a deeper pathname (e.g. '/events/evt/my-report').
+ * @param path - The path pattern to compile
+ * @returns The compiled prefix RegExp
+ */
+function getPrefixRegexp(path: string): RegExp {
+  if (!prefixRegexpCache.has(path)) {
+    if (isCatchAll(path)) {
+      prefixRegexpCache.set(path, MATCH_ANY);
+    } else {
+      const { regexp } = pathToRegexp(path);
+      let source = regexp.source;
+      // path-to-regexp v8 produces patterns ending with (?:\/$)?$
+      // We replace it with (?:\/|$) to allow prefix matching at segment boundaries.
+      const trailingSlashEnd = '(?:\\/$)?$';
+      if (source.endsWith(trailingSlashEnd)) {
+        source = source.slice(0, -trailingSlashEnd.length) + '(?:\\/|$)';
+      } else if (source.endsWith('$')) {
+        source = source.slice(0, -1) + '(?:\\/|$)';
+      }
+      prefixRegexpCache.set(path, new RegExp(source, regexp.flags));
+    }
+  }
+  return prefixRegexpCache.get(path)!;
 }
 
 // ============================================================================
@@ -286,34 +323,60 @@ export function findMatchingRoutes(
     const regexp = getRegexp(fullPath);
     const hasChildren = !!route.children && route.children.length > 0;
 
-    // A route is a "segment prefix" of the pathname only when it has children
-    // to recurse into. This allows a parent route (e.g. '/events') to remain in
-    // the matched chain while a child renders. For leaf routes (no children) we
-    // require an exact regexp match, otherwise '/events' would incorrectly match
-    // a sibling like '/events/new'.
-    // startsWith must respect path segment boundaries to avoid
-    // e.g. '/registered' matching '/register'.
-    const isSegmentPrefix =
-      hasChildren &&
-      (normalizedPathname === fullPath ||
-        normalizedPathname.startsWith(fullPath + '/'));
-    if (regexp.test(normalizedPathname) || isSegmentPrefix) {
-      const matchedRoute: MatchedRoute = {
+    // Case 1: this route exactly matches the pathname. It is the target route,
+    // so it always joins the chain. If it has children, recurse to append any
+    // deeper (more specific) matches.
+    if (regexp.test(normalizedPathname)) {
+      matches.push({
         route,
         path: fullPath,
         params: extractParams(fullPath, normalizedPathname),
         meta: route.meta ?? {}
-      };
+      });
 
-      matches.push(matchedRoute);
-
-      // Check children for more specific matches
-      if (route.children && route.children.length > 0) {
-        const childMatches = findMatchingRoutes(route.children, normalizedPathname, fullPath);
+      if (hasChildren) {
+        const childMatches = findMatchingRoutes(route.children!, normalizedPathname, fullPath);
         matches.push(...childMatches);
       }
 
       return matches;
+    }
+
+    // Case 2: this route is a "segment prefix" of a deeper pathname. We only
+    // follow it when it has children AND a descendant actually matches.
+    // Otherwise a prefix parent (e.g. '/shop/:category') would swallow the path
+    // and shadow a later sibling that should match (e.g. '/shop/sale/today'),
+    // producing a parent layout with an empty outlet.
+    // Boundary handling: startsWith requires a trailing '/' so '/registered'
+    // does not match '/register'; the prefix regexp handles ':param' segments.
+    if (hasChildren) {
+      const isSegmentPrefix =
+        normalizedPathname.startsWith(fullPath + '/') ||
+        getPrefixRegexp(fullPath).test(normalizedPathname);
+
+      if (isSegmentPrefix) {
+        const childMatches = findMatchingRoutes(route.children!, normalizedPathname, fullPath);
+        if (childMatches.length > 0) {
+          // The parent's own exact regexp can't capture params from a longer
+          // pathname, so recover the parent's params from the deepest match,
+          // keeping only the keys that belong to the parent pattern.
+          const leafParams = childMatches[childMatches.length - 1].params;
+          const parentParams: Record<string, string> = {};
+          for (const key of getKeys(fullPath)) {
+            if (key in leafParams) parentParams[key] = leafParams[key];
+          }
+
+          matches.push({
+            route,
+            path: fullPath,
+            params: parentParams,
+            meta: route.meta ?? {}
+          });
+          matches.push(...childMatches);
+          return matches;
+        }
+        // No descendant matched: do not claim this prefix; try the next sibling.
+      }
     }
   }
 
@@ -326,4 +389,5 @@ export function findMatchingRoutes(
 export function clearMatcherCache(): void {
   regexpCache.clear();
   keysCache.clear();
+  prefixRegexpCache.clear();
 }
