@@ -45,7 +45,7 @@ const MATCH_ANY = /^.*$/;
  * @param path - The path pattern to compile
  * @returns The compiled RegExp
  */
-function getRegexp(path: string): RegExp {
+export function getRegexp(path: string): RegExp {
   if (!regexpCache.has(path)) {
     if (isCatchAll(path)) {
       // Catch-all routes match any pathname and expose no parameters.

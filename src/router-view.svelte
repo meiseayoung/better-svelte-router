@@ -2,7 +2,7 @@
   import { untrack, type Snippet } from 'svelte';
   import type { IRoute, IRouterViewProps, LazyComponent, RoutePath } from './types';
   import { routerState } from './router-state.svelte';
-  import { findMatchingRoutes, normalizePath } from './matcher';
+  import { findMatchingRoutes, normalizePath, getRegexp, extractParams } from './matcher';
   import { replace } from './navigation';
   import RouterView from './router-view.svelte';
 
@@ -94,10 +94,16 @@
     if (currentMatch?.route.redirect) {
       const currentPathname = getCurrentPathname();
       // Only redirect if we're exactly on the route with redirect, not on a child route
-      if (currentMatch.path === normalizePath(currentPathname)) {
+      if (getRegexp(currentMatch.path).test(normalizePath(currentPathname))) {
         const redirectTarget = currentMatch.route.redirect;
+        // Replace :param placeholders in the redirect target with actual values
+        const params = extractParams(currentMatch.path, normalizePath(currentPathname));
+        let resolvedRedirect = redirectTarget;
+        for (const [key, value] of Object.entries(params)) {
+          resolvedRedirect = resolvedRedirect.replace(`:${key}`, value);
+        }
         untrack(() => {
-          replace(redirectTarget as RoutePath, {});
+          replace(resolvedRedirect as RoutePath, {});
         });
       }
     }
@@ -153,7 +159,7 @@
   {@const fullPath = buildFullPath(route)}
   {#if routeMatches(route)}
     {@const currentPathname = getCurrentPathname()}
-    {@const isExactMatch = normalizePath(currentPathname) === fullPath}
+    {@const isExactMatch = getRegexp(fullPath).test(normalizePath(currentPathname))}
     {#if route.redirect && isExactMatch}
       <!-- Redirect is handled by $effect above, only when exact match -->
     {:else if route.redirect && !isExactMatch && Array.isArray(route.children)}
