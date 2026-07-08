@@ -82,11 +82,17 @@ export async function push(to: RoutePath, query?: QueryParams): Promise<boolean>
   // Build the search string
   const search = buildSearchString(query);
   
+  // Mark programmatic navigation so the synchronous browser event that
+  // mutating the URL may emit is recognized as an echo (not re-guarded).
+  routerState.beginProgrammaticNavigation();
+  
   // Use adapter to perform navigation (handles hash/history mode)
   adapter.push(to, search);
   
-  // Update router state
-  routerState.href = window.location.href;
+  // Commit the navigation. This syncs the reactive href and records the
+  // committed path/position so the browser event that some modes emit (e.g.
+  // hashchange in hash mode) is recognized as an echo and does not re-run guards.
+  routerState.commitNavigation(to);
   
   // Run afterEach hooks
   runAfterHooks(from, to);
@@ -130,11 +136,17 @@ export async function replace(to: RoutePath, query?: QueryParams): Promise<boole
   // Build the search string
   const search = buildSearchString(query);
   
+  // Mark programmatic navigation so the synchronous browser event that
+  // mutating the URL may emit is recognized as an echo (not re-guarded).
+  routerState.beginProgrammaticNavigation();
+  
   // Use adapter to perform navigation (handles hash/history mode)
   adapter.replace(to, search);
   
-  // Update router state
-  routerState.href = window.location.href;
+  // Commit the navigation (replace keeps the current history position). This
+  // syncs the reactive href and records the committed path so any browser event
+  // emitted by the mode adapter is recognized as an echo and does not re-run guards.
+  routerState.commitNavigation(to, true);
   
   // Run afterEach hooks
   runAfterHooks(from, to);
