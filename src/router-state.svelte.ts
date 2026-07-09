@@ -132,13 +132,23 @@ class RouterState {
     // Listen for browser navigation events using the router mode adapter.
     this.#setupListener();
 
-    // Defer the initial guard run until the current synchronous setup has
-    // finished. Consumers typically call `createRouterMode()` and register
-    // `beforeEach` guards synchronously right after importing the router, so a
-    // microtask guarantees both are in place before the initial guards run.
-    // It also lets us rebind the listener to the adapter selected by
-    // `createRouterMode()` (the singleton is constructed before that call).
-    queueMicrotask(() => this.start());
+    // NOTE: the initial guard run is intentionally NOT scheduled here.
+    //
+    // Previously this constructor did `queueMicrotask(() => this.start())`.
+    // The singleton is constructed the moment the library is imported, when
+    // the default (history) adapter is still active. Under asynchronous module
+    // evaluation (e.g. native ESM in Vite dev, or lazy route imports), that
+    // microtask could fire BEFORE the app called `createRouterMode(...)`, so
+    // the initial guard-driven redirect ran in history mode and rewrote the
+    // real pathname (e.g. `/#/auth` -> `/auth`, later `/auth#/auth`),
+    // corrupting hash-mode URLs and dropping the query string.
+    //
+    // The initial guard pass is now triggered explicitly by whoever configures
+    // the router: `createRouterMode()` (defers via microtask so guards
+    // registered in the same synchronous turn are ready), and — as a fallback
+    // for apps that never call it and rely on the default history mode —
+    // `RouterView` on mount. `start()` is idempotent, so it runs exactly once,
+    // always against the app-configured adapter.
   }
 
   /**

@@ -252,6 +252,16 @@ export function createRouterMode(config: RouterModeConfig): IRouterModeAdapter {
     currentAdapter = new HistoryModeAdapter(base);
   }
 
+  // Drive the router state's initial guard pass now that the adapter is known.
+  // Deferred to a microtask so that `beforeEach` guards registered in the same
+  // synchronous turn (the common `createRouterMode(); beforeEach(...)` pattern)
+  // are in place before guards run. `start()` is idempotent and reads the
+  // adapter lazily, so the initial navigation always runs against this adapter.
+  // The dynamic import avoids a hard circular dependency at module-init time.
+  queueMicrotask(() => {
+    void import('./router-state.svelte').then(({ routerState }) => routerState.start());
+  });
+
   return currentAdapter;
 }
 

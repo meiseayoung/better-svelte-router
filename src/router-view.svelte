@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack, type Snippet } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
   import type { IRoute, IRouterViewProps, LazyComponent, RoutePath } from './types';
   import { routerState } from './router-state.svelte';
   import { findMatchingRoutes, normalizePath, getRegexp, extractParams } from './matcher';
@@ -18,6 +18,16 @@
   }
 
   const { routes, prefix = '', error: errorSnippet, loading: loadingSnippet }: Props = $props();
+
+  // Fallback trigger for the initial guard pass. The router state no longer
+  // auto-starts on construction (that raced with `createRouterMode` under async
+  // module loading). Apps that call `createRouterMode` start via that call; apps
+  // that rely on the default history mode without calling it start here, once a
+  // RouterView is mounted. `start()` is idempotent, so this is a no-op if the
+  // initial guards already ran.
+  onMount(() => {
+    routerState.start();
+  });
 
   /** Regex to detect lazy import functions (fast path) */
   const hasImportReg = /import\s*\(/;
