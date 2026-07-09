@@ -78,12 +78,19 @@ export class HistoryModeAdapter implements IRouterModeAdapter {
   /**
    * Navigate to a new path using replaceState.
    * Replaces the current entry in browser history.
+   *
+   * Preserves the existing history.state (only refreshing `timestamp`). Because
+   * replace() does not change the logical history position, keeping the current
+   * position tag lets RouterState skip its follow-up tagging replaceState, so
+   * replace() issues a single replaceState instead of two back-to-back calls
+   * (which some PC/desktop webviews reload on).
    * @param path - Route path to navigate to
    * @param search - Optional query string
    */
   replace(path: string, search: string = ''): void {
     const url = this.buildUrl(path, search);
-    window.history.replaceState({ timestamp: Date.now() }, '', url);
+    const prev = (window.history.state as Record<string, unknown> | null) ?? {};
+    window.history.replaceState({ ...prev, timestamp: Date.now() }, '', url);
   }
 
   /**
@@ -188,18 +195,19 @@ export class HashModeAdapter implements IRouterModeAdapter {
   /**
    * Navigate to a new path, replacing the current history entry.
    *
-   * Uses location.replace() rather than history.replaceState(). For a URL that
-   * differs from the current document only in its fragment, location.replace()
-   * performs a same-document fragment navigation (no reload) that replaces the
-   * current session-history entry. This mirrors how push() uses the location
-   * API (location.hash), which PC/desktop webviews accept without reloading,
-   * whereas some of them reload on a scripted history.replaceState().
+   * Uses history.replaceState with a fragment-only URL diff (see buildUrl) and
+   * preserves the existing history.state. Because replace() does not change the
+   * logical history position, keeping the current position tag lets RouterState
+   * skip its follow-up tagging replaceState, so replace() issues a SINGLE
+   * replaceState (the pre-regression profile) instead of two back-to-back calls,
+   * which some PC/desktop webviews reload on.
    * @param path - Route path to navigate to
    * @param search - Optional query string
    */
   replace(path: string, search: string = ''): void {
     const url = this.buildUrl(path, search);
-    window.location.replace(url);
+    const prev = (window.history.state as Record<string, unknown> | null) ?? {};
+    window.history.replaceState({ ...prev, timestamp: Date.now() }, '', url);
   }
 
   /**

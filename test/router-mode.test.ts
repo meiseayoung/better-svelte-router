@@ -208,35 +208,6 @@ describe('Hash Mode URL Format (Property 8)', () => {
   });
 
   /**
-   * Regression: hash-mode replace() must not reload the page in webviews.
-   *
-   * replace() must change the URL via the location API (location.replace), the
-   * same class of navigation push() uses (location.hash) and which webviews
-   * accept without reloading, rather than a scripted history.replaceState()
-   * that some PC/desktop webviews reload on.
-   */
-  it('should use location.replace (not history.replaceState) for hash-mode replace', () => {
-    const adapter = new HashModeAdapter();
-
-    const locationReplace = vi.fn();
-    (window.location as any).replace = locationReplace;
-    const historyReplaceSpy = vi.spyOn(window.history, 'replaceState');
-
-    adapter.replace('/next', '?token=abc');
-
-    // The URL change goes through location.replace with a fragment-only diff.
-    expect(locationReplace).toHaveBeenCalledTimes(1);
-    const calledWith = locationReplace.mock.calls[0][0] as string;
-    expect(calledWith).toBe(`${window.location.href.split('#')[0]}#/next?token=abc`);
-    expect(calledWith.split('#')[0]).toBe(window.location.href.split('#')[0]);
-
-    // replace() itself must not drive the change through history.replaceState.
-    expect(historyReplaceSpy).not.toHaveBeenCalled();
-
-    historyReplaceSpy.mockRestore();
-  });
-
-  /**
    * Property 8 (continued): getMode returns 'hash'
    */
   it('should return hash as the mode', () => {

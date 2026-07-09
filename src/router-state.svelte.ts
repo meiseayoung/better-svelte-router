@@ -23,8 +23,15 @@ function readHistoryPosition(): number | null {
  * Tags the current history entry with a logical position, preserving any other
  * fields already present on `history.state`. Uses `replaceState`, so it does
  * not create a new entry or emit a navigation event.
+ *
+ * Idempotent: if the current entry already carries this position, it does
+ * nothing. This is what keeps programmatic replace() at a single replaceState
+ * call — the adapter's replace() preserves the (unchanged) position tag, so
+ * this follow-up becomes a no-op instead of a second, back-to-back
+ * replaceState that some PC/desktop webviews reload on.
  */
 function writeHistoryPosition(pos: number): void {
+  if (readHistoryPosition() === pos) return;
   const prev = (window.history.state as Record<string, unknown> | null) ?? {};
   window.history.replaceState({ ...prev, [POSITION_KEY]: pos }, '', window.location.href);
 }
@@ -258,13 +265,10 @@ class RouterState {
         return;
       }
       adapter.replace(result);
-      // adapter.replace() overwrites history.state, so re-tag the entry.
+      // Re-tag the entry at the redirect target's position (a no-op if the
+      // adapter preserved the correct tag).
       this.#position = effectivePos;
       writeHistoryPosition(this.#position);
-      // Recognize the URL we just navigated to as our own, so the hashchange
-      // that hash-mode replace (location.replace) emits is treated as an echo
-      // and not re-guarded — regardless of how the async guard below resolves.
-      this.#committedHref = window.location.href;
       this.#href = window.location.href;
       await this.#confirmNavigation(result, from, effectivePos, redirectCount + 1);
       return;
