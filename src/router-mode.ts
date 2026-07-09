@@ -186,14 +186,20 @@ export class HashModeAdapter implements IRouterModeAdapter {
   }
 
   /**
-   * Navigate to a new path using replaceState.
-   * Replaces the current entry in browser history.
+   * Navigate to a new path, replacing the current history entry.
+   *
+   * Uses location.replace() rather than history.replaceState(). For a URL that
+   * differs from the current document only in its fragment, location.replace()
+   * performs a same-document fragment navigation (no reload) that replaces the
+   * current session-history entry. This mirrors how push() uses the location
+   * API (location.hash), which PC/desktop webviews accept without reloading,
+   * whereas some of them reload on a scripted history.replaceState().
    * @param path - Route path to navigate to
    * @param search - Optional query string
    */
   replace(path: string, search: string = ''): void {
     const url = this.buildUrl(path, search);
-    window.history.replaceState({ timestamp: Date.now() }, '', url);
+    window.location.replace(url);
   }
 
   /**

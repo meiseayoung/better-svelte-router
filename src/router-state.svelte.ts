@@ -261,6 +261,10 @@ class RouterState {
       // adapter.replace() overwrites history.state, so re-tag the entry.
       this.#position = effectivePos;
       writeHistoryPosition(this.#position);
+      // Recognize the URL we just navigated to as our own, so the hashchange
+      // that hash-mode replace (location.replace) emits is treated as an echo
+      // and not re-guarded — regardless of how the async guard below resolves.
+      this.#committedHref = window.location.href;
       this.#href = window.location.href;
       await this.#confirmNavigation(result, from, effectivePos, redirectCount + 1);
       return;
