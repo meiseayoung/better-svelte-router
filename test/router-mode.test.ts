@@ -143,6 +143,28 @@ describe('Hash Mode URL Format (Property 8)', () => {
   });
 
   /**
+   * Regression: hash-mode replace() must not reload the page in webviews.
+   *
+   * buildUrl must change ONLY the fragment, preserving everything before the
+   * '#' exactly as it is on the current document (including a real pre-hash
+   * query string). Reconstructing the base from origin + pathname used to drop
+   * the pre-hash query, which changed the pre-fragment URL and caused PC
+   * webviews to treat replaceState as a cross-document navigation and reload.
+   */
+  it('should preserve the pre-hash URL (incl. query) and only change the fragment', () => {
+    const adapter = new HashModeAdapter();
+
+    // Simulate a webview document opened with a real query before the hash.
+    (window.location as any).href = 'https://example.com/app/index.html?token=abc#/old?p=1';
+
+    const url = adapter.buildUrl('/new', '?p=2');
+
+    // Everything before '#' is preserved verbatim; only the fragment changes.
+    expect(url).toBe('https://example.com/app/index.html?token=abc#/new?p=2');
+    expect(url.split('#')[0]).toBe('https://example.com/app/index.html?token=abc');
+  });
+
+  /**
    * Property 8 (continued): Path extraction from hash
    * getCurrentPath should correctly extract path from hash fragment
    */

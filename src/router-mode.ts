@@ -152,12 +152,27 @@ export class HashModeAdapter implements IRouterModeAdapter {
 
   /**
    * Build a full URL with hash-based path.
+   *
+   * The base (everything before the fragment) is taken from the *actual*
+   * current URL rather than reconstructed from `origin + pathname`. This
+   * matters because:
+   *   1. It preserves any real query string that lives before the hash
+   *      (e.g. `index.html?token=abc#/route`), which the old reconstruction
+   *      silently dropped.
+   *   2. It produces a URL that differs from the current document only in its
+   *      fragment. `replaceState` with such a URL is a pure hash change, so PC
+   *      webviews (and `file://` shells) do not mistake it for a cross-document
+   *      navigation and reload the page.
+   *
    * @param path - Route path (e.g., '/users')
    * @param search - Optional query string (e.g., '?page=1')
    * @returns Full URL (e.g., 'https://example.com/#/users?page=1')
    */
   buildUrl(path: string, search: string = ''): string {
-    return `${window.location.origin}${window.location.pathname}#${path}${search}`;
+    const { href } = window.location;
+    const hashIndex = href.indexOf('#');
+    const base = hashIndex === -1 ? href : href.slice(0, hashIndex);
+    return `${base}#${path}${search}`;
   }
 
   /**
