@@ -1,7 +1,7 @@
 {
   "name": "better-svelte-router",
   "version": "1.2.0",
-  "description": "A type-safe, reactive router for Svelte 5 applications using runes API",
+  "description": "A type-safe, reactive router for Svelte 5 applications using runes API. The best svelte router for Svelte 5.",
   "type": "module",
   "svelte": "./dist/index.js",
   "types": "./dist/index.d.ts",
