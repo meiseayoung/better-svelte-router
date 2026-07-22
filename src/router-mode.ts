@@ -203,9 +203,8 @@ export class HashModeAdapter implements IRouterModeAdapter {
    *      tagging replaceState.
    *   2. try/catch → fall back to `location.replace` when replaceState throws.
    *
-   * Android is an additional known-unreliable environment (BF list often not
-   * updated for hash-only replaceState), so it skips straight to
-   * `location.replace` — same idea as vue-router 3's Android pushState blacklist.
+   * Old Android WebKits that fail vue-router 3's `supportsPushState` check skip
+   * straight to `location.replace`. Modern Android uses `replaceState`.
    * RouterState then tags position with one same-URL replaceState so cancel-back
    * can still use history.go(delta).
    * @param path - Route path to navigate to
@@ -242,6 +241,132 @@ export class HashModeAdapter implements IRouterModeAdapter {
 
 
 // ============================================================================
+// Memory Mode Adapter (hash bootstrap + in-memory runtime)
+// ============================================================================
+
+/**
+ * Split path and search when callers pass `/path?query` as a single string
+ * (common in this app, e.g. statistics → person/list).
+ */
+function splitPathSearch(path: string, search: string = ''): { path: string; search: string } {
+  const qi = path.indexOf('?');
+  if (qi < 0) {
+    return { path: path || '/', search: search || '' };
+  }
+  return {
+    path: path.slice(0, qi) || '/',
+    search: search || path.slice(qi),
+  };
+}
+
+interface MemoryEntry {
+  path: string;
+  search: string;
+}
+
+/**
+ * Memory mode: seed once from `location.hash` (native deep links like
+ * `#/auth?token=…`), then keep the route stack in memory and ignore
+ * hashchange/popstate — so Android WebView restoring `#/auth` cannot
+ * remount the auth page.
+ *
+ * Optional `syncHash` mirrors the current path into the hash via
+ * `history.replaceState` for display only; inbound URL changes are ignored.
+ */
+export class MemoryModeAdapter implements IRouterModeAdapter {
+  private syncHash: boolean;
+  private stack: MemoryEntry[];
+  private index: number;
+
+  /**
+   * @param _base - unused (hash fragment carries the path)
+   * @param syncHash - mirror path into location.hash (default true)
+   */
+  constructor(_base: string = '', syncHash: boolean = true) {
+    this.syncHash = syncHash;
+    const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
+    const seeded = splitPathSearch(hash || '/');
+    this.stack = [{ path: seeded.path, search: seeded.search }];
+    this.index = 0;
+  }
+
+  getMode(): RouterMode {
+    return 'memory';
+  }
+
+  getCurrentPath(): string {
+    const raw = this.stack[this.index]?.path || '/';
+    // Defense in depth: never expose embedded query to the matcher.
+    return raw.split('?')[0] || '/';
+  }
+
+  getCurrentSearch(): string {
+    const entry = this.stack[this.index];
+    if (!entry) return '';
+    if (entry.search) return entry.search;
+    const qi = entry.path.indexOf('?');
+    return qi >= 0 ? entry.path.slice(qi) : '';
+  }
+
+  buildUrl(path: string, search: string = ''): string {
+    const { href } = window.location;
+    const hashIndex = href.indexOf('#');
+    const base = hashIndex === -1 ? href : href.slice(0, hashIndex);
+    return `${base}#${path}${search}`;
+  }
+
+  #writeHash(path: string, search: string): void {
+    if (!this.syncHash) return;
+    const url = this.buildUrl(path, search);
+    try {
+      const prev = (window.history.state as Record<string, unknown> | null) ?? {};
+      window.history.replaceState({ ...prev, timestamp: Date.now() }, '', url);
+    } catch {
+      // Display sync is best-effort; memory stack remains source of truth.
+    }
+  }
+
+  push(path: string, search: string = ''): void {
+    const normalized = splitPathSearch(path, search);
+    this.stack = this.stack.slice(0, this.index + 1);
+    this.stack.push({ path: normalized.path, search: normalized.search });
+    this.index = this.stack.length - 1;
+    this.#writeHash(normalized.path, normalized.search);
+  }
+
+  replace(path: string, search: string = ''): void {
+    const normalized = splitPathSearch(path, search);
+    this.stack[this.index] = { path: normalized.path, search: normalized.search };
+    this.#writeHash(normalized.path, normalized.search);
+  }
+
+  go(delta: number): boolean {
+    const next = this.index + delta;
+    if (next < 0 || next >= this.stack.length) return false;
+    this.index = next;
+    const entry = this.stack[this.index];
+    this.#writeHash(entry.path, entry.search);
+    return true;
+  }
+
+  /** Path at index+delta, or null if out of bounds. */
+  peekPath(delta: number): string | null {
+    const next = this.index + delta;
+    if (next < 0 || next >= this.stack.length) return null;
+    const raw = this.stack[next].path;
+    return raw.split('?')[0] || '/';
+  }
+
+  /**
+   * No browser listeners — WebView history/hash restoration must not drive routing.
+   */
+  setupListener(_callback: () => void): () => void {
+    return () => {};
+  }
+}
+
+
+// ============================================================================
 // Factory Functions
 // ============================================================================
 
@@ -251,22 +376,27 @@ let currentAdapter: IRouterModeAdapter | null = null;
 /**
  * Create and initialize a router mode adapter.
  * Sets the global adapter instance based on the provided configuration.
- * 
+ *
  * @param config - Router mode configuration
  * @returns The created adapter instance
- * 
+ *
  * @example
  * // Initialize with hash mode
  * createRouterMode({ mode: 'hash' });
- * 
+ *
  * // Initialize with history mode and custom base
  * createRouterMode({ mode: 'history', base: '/app' });
+ *
+ * // Hybrid: seed from hash, then memory stack (WebView-safe)
+ * createRouterMode({ mode: 'memory', syncHash: true });
  */
 export function createRouterMode(config: RouterModeConfig): IRouterModeAdapter {
   const base = config.base ?? '';
 
   if (config.mode === 'hash') {
     currentAdapter = new HashModeAdapter(base);
+  } else if (config.mode === 'memory') {
+    currentAdapter = new MemoryModeAdapter(base, config.syncHash !== false);
   } else {
     currentAdapter = new HistoryModeAdapter(base);
   }

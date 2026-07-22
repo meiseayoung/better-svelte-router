@@ -8,7 +8,7 @@ A type-safe, reactive router for Svelte 5 applications using the runes API.
 - 🔒 **Type Safe** - Full TypeScript support with route path autocompletion
 - 🛡️ **Navigation Guards** - `beforeEach` and `afterEach` hooks for route access control
 - 📦 **Lazy Loading** - Component lazy loading and code splitting support
-- 🔀 **Dual Mode Routing** - Hash mode and History mode support
+- 🔀 **Three Routing Modes** - Hash, History, and Memory (WebView-safe hybrid)
 - 📝 **Route Meta** - Attach custom metadata to routes
 
 ## Installation
@@ -77,13 +77,16 @@ export const routes: IRoute[] = [
 // main.ts or App.svelte
 import { createRouterMode } from 'better-svelte-router';
 
-// History mode (recommended)
+// History mode (recommended for normal web apps)
 createRouterMode({ mode: 'history' });
 
 // Or Hash mode
 createRouterMode({ mode: 'hash' });
 
-// With base path
+// Or Memory mode (recommended for Android/iOS WebViews)
+createRouterMode({ mode: 'memory', syncHash: true });
+
+// With base path (history mode)
 createRouterMode({ mode: 'history', base: '/my-app' });
 ```
 
@@ -126,6 +129,37 @@ import { createRouterMode } from 'better-svelte-router';
 createRouterMode({ mode: 'hash' });
 ```
 
+Hash `replace()` prefers a single `history.replaceState` that preserves the position tag (vue-router-style). If `replaceState` throws, it falls back to `location.replace`. Very old Android WebKits (Android 2.x / 4.0 Mobile Safari without Chrome) skip straight to `location.replace`.
+
+### Memory Mode (WebView-safe)
+
+Hybrid mode for native shells: **seed once from `location.hash`**, then keep the route stack **in memory** and **ignore** `hashchange` / `popstate`. This prevents Android WebView from restoring a launch URL like `#/auth?token=…` and remounting the auth page.
+
+```typescript
+import { createRouterMode } from 'better-svelte-router';
+
+// Seed from hash, then ignore WebView history afterwards
+createRouterMode({ mode: 'memory', syncHash: true });
+
+// Same, but do not mirror the path back into location.hash
+createRouterMode({ mode: 'memory', syncHash: false });
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `syncHash` | `true` | Mirror the current path into `location.hash` via `history.replaceState` for display/debugging. Inbound hash/popstate changes are still ignored. |
+
+Typical deep-link flow:
+
+```text
+WebView opens  https://app/#/auth?token=…
+  → MemoryModeAdapter seeds stack at /auth?token=…
+  → replace('/new-event') updates memory stack only
+  → even if WebView restores #/auth, the router stays on /new-event
+```
+
+Use `back()` / `forward()` (not the system back button alone) so navigation goes through the in-memory stack and guards.
+
 ## Programmatic Navigation
 
 ```typescript
@@ -134,16 +168,21 @@ import { push, replace, back, forward } from 'better-svelte-router';
 // Navigate to a new route (adds history entry)
 await push('/users');
 
-// With query parameters
+// With query parameters (object)
 await push('/search', { q: 'test', page: 1 });
+
+// Path may also embed a query string
+await push('/list?type=staff');
 
 // Replace current history entry
 await replace('/login');
 
-// Browser history navigation
-back();
-forward();
+// History navigation (memory mode uses the in-memory stack)
+await back();
+await forward();
 ```
+
+`back()` / `forward()` return `Promise<boolean>`: `false` when cancelled by a guard, out of bounds (memory mode), or otherwise unable to move; otherwise `true`.
 
 ## Navigation Guards
 
@@ -472,17 +511,17 @@ Access route parameters in components:
 ```typescript
 import { push, replace, back, forward, buildSearchString } from 'better-svelte-router';
 
-// Navigate to a new route
+// Navigate to a new route (`to` may include `?query`)
 push(to: RoutePath, query?: QueryParams): Promise<boolean>
 
-// Replace current route
+// Replace current route (`to` may include `?query`)
 replace(to: RoutePath, query?: QueryParams): Promise<boolean>
 
-// Go back
-back(): void
+// Go back (memory mode: in-memory stack; otherwise browser history)
+back(): Promise<boolean>
 
-// Go forward
-forward(): void
+// Go forward (memory mode: in-memory stack; otherwise browser history)
+forward(): Promise<boolean>
 
 // Build query string
 buildSearchString(query?: QueryParams): string
@@ -506,7 +545,14 @@ clearGuards(): void
 ### Router Mode
 
 ```typescript
-import { createRouterMode, getRouterMode, resetRouterMode } from 'better-svelte-router';
+import {
+  createRouterMode,
+  getRouterMode,
+  resetRouterMode,
+  HistoryModeAdapter,
+  HashModeAdapter,
+  MemoryModeAdapter,
+} from 'better-svelte-router';
 
 // Create router mode
 createRouterMode(config: RouterModeConfig): IRouterModeAdapter
@@ -568,11 +614,27 @@ type NavigationGuard = (from: string, to: string) =>
   boolean | string | void | Promise<boolean | string | void>;
 
 // Router mode
-type RouterMode = 'hash' | 'history';
+type RouterMode = 'hash' | 'history' | 'memory';
 
 interface RouterModeConfig {
   mode: RouterMode;
   base?: string;
+  /** memory mode only: mirror path into location.hash (default true) */
+  syncHash?: boolean;
+}
+
+interface IRouterModeAdapter {
+  getCurrentPath(): string;
+  getCurrentSearch(): string;
+  buildUrl(path: string, search?: string): string;
+  push(path: string, search?: string): void;
+  replace(path: string, search?: string): void;
+  setupListener(callback: () => void): () => void;
+  getMode(): RouterMode;
+  /** memory mode: move within the in-memory stack */
+  go?(delta: number): boolean;
+  /** memory mode: path at index+delta, or null if out of bounds */
+  peekPath?(delta: number): string | null;
 }
 ```
 

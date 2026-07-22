@@ -138,31 +138,36 @@ export {
 // ============================================================================
 
 /**
- * Router mode functions for configuring hash or history routing.
- * 
+ * Router mode functions for configuring hash, history, or memory routing.
+ *
  * - `createRouterMode`: Initialize the router with a specific mode
  * - `getRouterMode`: Get the current router mode adapter
  * - `resetRouterMode`: Reset the router mode (for testing)
  * - `HistoryModeAdapter`: History mode adapter class
  * - `HashModeAdapter`: Hash mode adapter class
- * 
+ * - `MemoryModeAdapter`: Memory mode adapter (hash bootstrap + in-memory stack)
+ *
  * @example
  * // Initialize with hash mode
  * createRouterMode({ mode: 'hash' });
- * 
+ *
  * // Initialize with history mode
  * createRouterMode({ mode: 'history', base: '/app' });
- * 
+ *
+ * // Hybrid: seed from hash, ignore WebView history afterwards
+ * createRouterMode({ mode: 'memory', syncHash: true });
+ *
  * // Get current adapter
  * const adapter = getRouterMode();
  * const currentPath = adapter.getCurrentPath();
  */
-export { 
-  createRouterMode, 
-  getRouterMode, 
+export {
+  createRouterMode,
+  getRouterMode,
   resetRouterMode,
   HistoryModeAdapter,
-  HashModeAdapter
+  HashModeAdapter,
+  MemoryModeAdapter
 } from './router-mode';
 
 // ============================================================================

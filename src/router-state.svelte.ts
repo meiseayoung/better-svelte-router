@@ -414,8 +414,15 @@ class RouterState {
     writeHistoryPosition(this.#position);
 
     this.#committedPath = path;
-    this.#committedHref = window.location.href;
-    this.#href = window.location.href;
+    const adapter = getRouterMode();
+    // memory mode: href may not match window.location when WebView restores
+    // an old hash; drive reactivity from the adapter's logical URL instead.
+    const href =
+      adapter.getMode() === 'memory'
+        ? adapter.buildUrl(path, adapter.getCurrentSearch())
+        : window.location.href;
+    this.#committedHref = href;
+    this.#href = href;
     this.#programmatic = false;
   }
 

@@ -210,11 +210,11 @@ describe('Hash Mode URL Format (Property 8)', () => {
   /**
    * Regression: hash-mode replace prefers replaceState (position in same write),
    * with location.replace as try/catch fallback — and forces that fallback on
-   * Android where hash replaceState is unreliable for the BF list.
+   * old Android WebKits matching vue-router 3's supportsPushState blacklist.
    */
-  it('should use location.replace for hash-mode replace on Android UA', () => {
+  it('should use location.replace for hash-mode replace on old Android WebKit UA', () => {
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
-      'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+      'Mozilla/5.0 (Linux; U; Android 4.0.3; en-us) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30'
     );
 
     const adapter = new HashModeAdapter();
@@ -232,6 +232,28 @@ describe('Hash Mode URL Format (Property 8)', () => {
     const calledWith = locationReplace.mock.calls[0][0] as string;
     expect(calledWith).toBe(`${window.location.href.split('#')[0]}#/next?token=abc`);
     expect(historyReplaceSpy).not.toHaveBeenCalled();
+
+    historyReplaceSpy.mockRestore();
+  });
+
+  it('should use replaceState for hash-mode replace on modern Android Chrome UA', () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+    );
+
+    const adapter = new HashModeAdapter();
+    const locationReplace = vi.fn();
+    Object.defineProperty(window.location, 'replace', {
+      configurable: true,
+      writable: true,
+      value: locationReplace,
+    });
+    const historyReplaceSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
+
+    adapter.replace('/next', '?token=abc');
+
+    expect(historyReplaceSpy).toHaveBeenCalledTimes(1);
+    expect(locationReplace).not.toHaveBeenCalled();
 
     historyReplaceSpy.mockRestore();
   });

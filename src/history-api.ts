@@ -2,16 +2,17 @@
  * Thin wrappers around the History API, following vue-router's pattern:
  * try pushState/replaceState first; on failure fall back to location.assign/replace.
  *
- * Hash-mode replace on Android additionally skips replaceState entirely — those
- * WebViews often accept replaceState without updating the back-forward list.
+ * Hash-mode replace skips replaceState only on the same old Android WebKits that
+ * vue-router 3 blacklists in `supportsPushState` (Android 2.x / 4.0 Mobile Safari
+ * without Chrome). Modern Android uses replaceState like other browsers.
  */
 
 /**
  * Whether hash-mode `history.replaceState` is reliable for updating the
  * session-history entry (back-forward list + preserving `history.state`).
  *
- * Android is treated as unreliable (modern WebViews included), similar in spirit
- * to vue-router 3 blacklisting buggy Android UAs from `supportsPushState`.
+ * Aligned with vue-router 3 `supportsPushState`: only old Android 2.x / 4.0
+ * Mobile Safari (no Chrome) is treated as unreliable.
  */
 export function supportsReliableHashReplaceState(): boolean {
   if (typeof window === 'undefined') return false;
@@ -19,7 +20,15 @@ export function supportsReliableHashReplaceState(): boolean {
     return false;
   }
   const ua = window.navigator?.userAgent ?? '';
-  if (/Android/i.test(ua)) return false;
+  // Same UA check as vue-router 3 src/util/push-state.js `supportsPushState`.
+  if (
+    (ua.indexOf('Android 2.') !== -1 || ua.indexOf('Android 4.0') !== -1) &&
+    ua.indexOf('Mobile Safari') !== -1 &&
+    ua.indexOf('Chrome') === -1 &&
+    ua.indexOf('Windows Phone') === -1
+  ) {
+    return false;
+  }
   return true;
 }
 

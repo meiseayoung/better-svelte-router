@@ -254,16 +254,18 @@ export type RoutePath = string;
  * Router mode type.
  * - 'hash': Uses URL hash fragment for routing (e.g., /#/path)
  * - 'history': Uses HTML5 History API for clean URLs (e.g., /path)
- * 
+ * - 'memory': In-memory stack; seeds once from location.hash, then ignores
+ *   hashchange/popstate (hybrid hash bootstrap + memory runtime)
+ *
  * @example
  * const mode: RouterMode = 'hash';
  */
-export type RouterMode = 'hash' | 'history';
+export type RouterMode = 'hash' | 'history' | 'memory';
 
 /**
  * Router mode configuration interface.
  * Used to initialize the router with the desired mode and base path.
- * 
+ *
  * @example
  * const config: RouterModeConfig = {
  *   mode: 'history',
@@ -271,17 +273,23 @@ export type RouterMode = 'hash' | 'history';
  * };
  */
 export interface RouterModeConfig {
-  /** Router mode: 'hash' or 'history' */
+  /** Router mode: 'hash', 'history', or 'memory' */
   mode: RouterMode;
   /** Base path prefix for all routes */
   base?: string;
+  /**
+   * memory mode only: mirror the current path into `location.hash` via
+   * `history.replaceState` for display/debugging. Inbound hash/popstate
+   * changes are still ignored. Defaults to true.
+   */
+  syncHash?: boolean;
 }
 
 /**
  * Router mode adapter interface.
- * Provides a unified API for both hash and history routing modes.
- * Implementations handle the differences between hash-based and history-based routing.
- * 
+ * Provides a unified API for hash, history, and memory routing modes.
+ * Implementations handle the differences between URL-based and in-memory routing.
+ *
  * @example
  * const adapter: IRouterModeAdapter = getRouterMode();
  * const currentPath = adapter.getCurrentPath();
@@ -302,4 +310,11 @@ export interface IRouterModeAdapter {
   setupListener(callback: () => void): () => void;
   /** Get the current router mode */
   getMode(): RouterMode;
+  /**
+   * memory mode: move within the in-memory stack by delta.
+   * Returns false when the move is out of bounds.
+   */
+  go?(delta: number): boolean;
+  /** memory mode: path at index+delta, or null if out of bounds. */
+  peekPath?(delta: number): string | null;
 }

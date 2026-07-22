@@ -8,8 +8,8 @@ import { createRouterMode, getRouterMode, resetRouterMode } from '../src/router-
  * Regression tests for webview reload / Android BF-list bugs around replace().
  *
  * Prefer a SINGLE history.replaceState that preserves the position tag.
- * Hash mode on Android (or when replaceState throws) uses location.replace to
- * fix the BF list, then one same-URL replaceState to restore __brsr_pos.
+ * Hash mode on old Android WebKits (or when replaceState throws) uses
+ * location.replace, then one same-URL replaceState to restore __brsr_pos.
  */
 
 /** Flush pending microtasks/timers so async guard resolution settles. */
@@ -113,11 +113,12 @@ describe('hash replace fallbacks', () => {
     expect((window.history.state as { __brsr_pos?: number })?.__brsr_pos).toBe(posBefore);
   });
 
-  it('uses location.replace on Android UA, then tags with one same-URL replaceState', async () => {
+  it('uses location.replace on old Android WebKit UA, then tags with one same-URL replaceState', async () => {
     registerBeforeEach(() => true);
 
+    // vue-router 3 supportsPushState blacklist shape (no Chrome).
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
-      'Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+      'Mozilla/5.0 (Linux; U; Android 4.0.3; en-us) AppleWebKit/534.30 (KHTML, like Gecko) Version/4.0 Mobile Safari/534.30'
     );
 
     const posBefore = (window.history.state as { __brsr_pos?: number })?.__brsr_pos;
@@ -133,6 +134,23 @@ describe('hash replace fallbacks', () => {
     // URL change via location.replace; only the position tag hits replaceState.
     expect(replaceStateSpy).toHaveBeenCalledTimes(1);
     expect((window.history.state as { __brsr_pos?: number })?.__brsr_pos).toBe(posBefore);
+  });
+
+  it('uses replaceState on modern Android Chrome UA', async () => {
+    registerBeforeEach(() => true);
+
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+    );
+
+    const spy = vi.spyOn(window.history, 'replaceState');
+
+    await replace('/target');
+    await flush();
+
+    expect(getRouterMode().getCurrentPath()).toBe('/target');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(typeof (window.history.state as { __brsr_pos?: number })?.__brsr_pos).toBe('number');
   });
 });
 
