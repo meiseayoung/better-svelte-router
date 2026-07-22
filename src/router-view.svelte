@@ -4,20 +4,41 @@
   import { routerState } from './router-state.svelte';
   import { findMatchingRoutes, normalizePath, getRegexp, extractParams } from './matcher';
   import { replace } from './navigation';
+  import {
+    KeepAliveLRU,
+    buildKeepAliveCacheKey,
+    resolveKeepAlive,
+    childKeepAliveInherit,
+    type ResolvedKeepAlive,
+  } from './keep-alive';
+  import KeepAliveBoundary from './keep-alive-boundary';
+  import RouteComponent from './route-component.svelte';
   import RouterView from './router-view.svelte';
 
   /**
    * RouterView component - renders the matched route component based on current URL.
    * Uses Svelte 5 runes for reactive state management.
+   * Routes with `meta.keepAlive` stay mounted and toggle visibility instead of destroying.
    */
   interface Props extends IRouterViewProps {
     /** Custom error snippet for handling component load failures */
     error?: Snippet<[Error]>;
     /** Custom loading snippet shown while lazy components load */
     loading?: Snippet;
+    /**
+     * Inherited keep-alive from an ancestor with `deep: true`.
+     * Internal — set by nested RouterView rendering, not app code.
+     */
+    keepAliveInherit?: ResolvedKeepAlive | null;
   }
 
-  const { routes, prefix = '', error: errorSnippet, loading: loadingSnippet }: Props = $props();
+  const {
+    routes,
+    prefix = '',
+    error: errorSnippet,
+    loading: loadingSnippet,
+    keepAliveInherit = null,
+  }: Props = $props();
 
   // Fallback trigger for the initial guard pass. The router state no longer
   // auto-starts on construction (that raced with `createRouterMode` under async
@@ -34,6 +55,9 @@
 
   /** Cache for lazy component promises to prevent re-fetching */
   const lazyComponentCache = new Map<LazyComponent, Promise<{ default: any }>>();
+
+  /** Per-route keep-alive LRU stores, keyed by the route's full pattern path. */
+  const keepAliveCaches = new Map<string, KeepAliveLRU>();
 
   /**
    * Checks if a component is a lazy-loaded component.
@@ -156,6 +180,40 @@
     // Check if this route is in the matched routes
     return matchedRoutes.some((match) => match.path === fullPath);
   }
+
+  function getOrCreateCache(routePath: string, max: number): KeepAliveLRU {
+    let cache = keepAliveCaches.get(routePath);
+    if (!cache || cache.max !== max) {
+      cache = new KeepAliveLRU(max);
+      keepAliveCaches.set(routePath, cache);
+    }
+    return cache;
+  }
+
+  /**
+   * Cache keys for a keep-alive route. Touches the active key during render
+   * so navigation updates the LRU without a separate effect.
+   */
+  function keepAliveKeys(route: IRoute, fullPath: string): string[] {
+    const config = resolveKeepAlive(route, keepAliveInherit);
+    if (!config) return [];
+
+    const cache = getOrCreateCache(fullPath, config.max);
+    if (routeMatches(route)) {
+      const pathname = normalizePath(getCurrentPathname());
+      const key = buildKeepAliveCacheKey(config.key, fullPath, pathname);
+      cache.touch(key, key);
+    }
+    return [...cache.keys];
+  }
+
+  function isKeepAliveActive(route: IRoute, fullPath: string, cacheKey: string): boolean {
+    if (!routeMatches(route)) return false;
+    const config = resolveKeepAlive(route, keepAliveInherit);
+    if (!config) return false;
+    const pathname = normalizePath(getCurrentPathname());
+    return buildKeepAliveCacheKey(config.key, fullPath, pathname) === cacheKey;
+  }
 </script>
 
 <!--
@@ -164,57 +222,65 @@
   - Lazy-loaded components with error handling
   - Nested routes via recursive self-import
   - Custom error and loading snippets
+  - Optional mount-based keep-alive via meta.keepAlive
 -->
-{#each routes as route (route.path)}
+{#each routes as route, i (`${i}:${route.path}`)}
   {@const fullPath = buildFullPath(route)}
-  {#if routeMatches(route)}
-    {@const currentPathname = getCurrentPathname()}
-    {@const isExactMatch = getRegexp(fullPath).test(normalizePath(currentPathname))}
+  {@const matched = routeMatches(route)}
+  {@const keepAlive = resolveKeepAlive(route, keepAliveInherit)}
+  {@const nestedInherit = childKeepAliveInherit(keepAlive)}
+  {@const currentPathname = getCurrentPathname()}
+  {@const isExactMatch = getRegexp(fullPath).test(normalizePath(currentPathname))}
+
+  {#if keepAlive}
+    {#each keepAliveKeys(route, fullPath) as cacheKey (cacheKey)}
+      {@const active = isKeepAliveActive(route, fullPath, cacheKey)}
+      {#if route.redirect && isExactMatch && active}
+        <!-- Redirect handled by $effect -->
+      {:else if route.redirect && !isExactMatch && Array.isArray(route.children)}
+        <RouterView
+          routes={route.children}
+          prefix={fullPath}
+          error={errorSnippet}
+          loading={loadingSnippet}
+          keepAliveInherit={nestedInherit}
+        />
+      {:else}
+        <KeepAliveBoundary
+          {active}
+          {cacheKey}
+          {route}
+          {fullPath}
+          {errorSnippet}
+          {loadingSnippet}
+          {isLazyComponent}
+          {getLazyComponentPromise}
+          keepAliveInherit={nestedInherit}
+        />
+      {/if}
+    {/each}
+  {:else if matched}
     {#if route.redirect && isExactMatch}
       <!-- Redirect is handled by $effect above, only when exact match -->
     {:else if route.redirect && !isExactMatch && Array.isArray(route.children)}
       <!-- Route has redirect but we're on a child route, render children -->
-      <RouterView routes={route.children} prefix={fullPath} error={errorSnippet} loading={loadingSnippet} />
-    {:else if route.component}
-      {#if isLazyComponent(route.component)}
-        <!-- Lazy-loaded component with cached promise -->
-        {@const importPromise = getLazyComponentPromise(route.component)}
-        {#await importPromise}
-          <!-- Loading state -->
-          {#if loadingSnippet}
-            {@render loadingSnippet()}
-          {/if}
-        {:then module}
-          <!-- Dynamic component rendering in Svelte 5 -->
-          {@const DynamicComponent = module.default}
-          <DynamicComponent>
-            {#if Array.isArray(route.children)}
-              <RouterView routes={route.children} prefix={fullPath} error={errorSnippet} loading={loadingSnippet} />
-            {/if}
-          </DynamicComponent>
-        {:catch err}
-          <!-- Error state with customizable snippet -->
-          {#if errorSnippet}
-            {@render errorSnippet(err)}
-          {:else}
-            <div class="router-error">
-              <p>Failed to load component</p>
-              <pre>{err?.message ?? 'Unknown error'}</pre>
-            </div>
-          {/if}
-        {/await}
-      {:else}
-        <!-- Synchronous Svelte component - dynamic by default in Svelte 5 -->
-        {@const StaticComponent = route.component}
-        <StaticComponent>
-          {#if Array.isArray(route.children)}
-            <RouterView routes={route.children} prefix={fullPath} error={errorSnippet} loading={loadingSnippet} />
-          {/if}
-        </StaticComponent>
-      {/if}
-    {:else if Array.isArray(route.children)}
-      <!-- Route without component but with children (layout route) -->
-      <RouterView routes={route.children} prefix={fullPath} error={errorSnippet} loading={loadingSnippet} />
+      <RouterView
+        routes={route.children}
+        prefix={fullPath}
+        error={errorSnippet}
+        loading={loadingSnippet}
+        keepAliveInherit={nestedInherit}
+      />
+    {:else}
+      <RouteComponent
+        {route}
+        {fullPath}
+        {errorSnippet}
+        {loadingSnippet}
+        {isLazyComponent}
+        {getLazyComponentPromise}
+        keepAliveInherit={nestedInherit}
+      />
     {/if}
   {/if}
 {/each}

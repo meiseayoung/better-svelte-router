@@ -277,6 +277,69 @@ const routes: IRoute[] = [
 ];
 ```
 
+### Keep-alive (mount cache)
+
+Set `meta.keepAlive` so a route stays mounted when you navigate away. Inactive instances are **moved out of the document** into a detached parking node (Vue-style), so **local `$state` / DOM state does not need to be lifted out**. Keep-alive itself adds **zero DOM nodes**: it captures Svelte's `$$anchor`, `mount()`s the route into parking, and only moves the route's own nodes before that anchor.
+
+```typescript
+const routes: IRoute[] = [
+  {
+    path: '/',
+    component: MainLayout,
+    // Children inherit keep-alive; a child may set keepAlive: false to opt out
+    meta: { keepAlive: { deep: true, max: 10 } },
+    children: [
+      { path: 'list', component: ListPage },
+      { path: 'detail/:id', component: DetailPage, meta: { keepAlive: { key: 'full', max: 5 } } },
+      { path: 'about', component: AboutPage, meta: { keepAlive: false } },
+    ],
+  },
+];
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `key: 'path'` | ✓ | One instance per route pattern (good for tabs) |
+| `key: 'full'` | | One instance per resolved URL (e.g. per-id drafts) |
+| `max` | `10` | LRU cap per route in that `RouterView` outlet |
+| `deep` | `false` | Nested `RouterView` children inherit keep-alive (`false` on a child opts out) |
+
+#### Semantics
+
+- **Scope:** keep-alive is per `RouterView` outlet (siblings under that outlet). Marking a parent does not cache the whole app—use `deep: true` if nested child routes should inherit.
+- **Lifecycle:** first visit runs `onMount` as usual. Leaving parks the instance (no `onDestroy`). Coming back restores the same instance (no second `onMount`). LRU eviction or removing the route destroys it and `onDestroy` runs then.
+- **Guards:** `beforeEach` / `afterEach` follow URL navigation only, not park/restore of a cached instance.
+- **Opt-out:** `meta.keepAlive: false` disables caching for that route and stops `deep` inheritance for its subtree.
+
+#### Side effects when inactive
+
+Parking does **not** tear down the component, so `$effect` does **not** stop automatically. Timers, sockets, and listeners can keep running in the background.
+
+Use `whileRouteActive` so work starts only while the instance is active and cleans up on deactivate:
+
+```svelte
+<script lang="ts">
+  import { whileRouteActive, getRouteAlive } from 'better-svelte-router';
+
+  const alive = getRouteAlive();
+
+  whileRouteActive(() => {
+    const id = setInterval(refresh, 5000);
+    return () => clearInterval(id);
+  });
+</script>
+```
+
+Or gate a manual `$effect` with `isRouteActive()` / `alive?.active` if you need custom control. Call `whileRouteActive` during component init (same rules as `$effect`).
+
+#### Known limitations
+
+- **`$effect` is not paused for you.** Always use `whileRouteActive` (or an equivalent `isRouteActive()` check) for intervals, subscriptions, and in-flight work tied to the visible page.
+- **`key: 'full'` and global URL.** Each resolved URL gets its own instance, but parked instances still live under the app. Do **not** treat `routerState.pathname` / live route params as that instance’s identity while inactive—capture params into local `$state` on activate (or when the instance is created). Otherwise a hidden cache entry may react to the current URL.
+- **Not a full Vue `<KeepAlive>` clone.** Caching is route/outlet based via `meta.keepAlive`, not an arbitrary wrapper around any dynamic component. Nested depth is controlled with `deep`, not by wrapping `RouterView` in a separate keep-alive component.
+
+Try the interactive demo: `npm run demo:keep-alive`.
+
 Use meta in guards:
 
 ```typescript
@@ -603,7 +666,14 @@ interface IRoute {
 interface RouteMeta {
   title?: string;
   requiresAuth?: boolean;
+  keepAlive?: boolean | KeepAliveOptions;
   [key: string]: unknown;
+}
+
+interface KeepAliveOptions {
+  key?: 'path' | 'full';
+  max?: number;
+  deep?: boolean;
 }
 
 // Query parameters

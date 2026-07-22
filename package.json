@@ -35,6 +35,7 @@
   "scripts": {
     "build": "svelte-package -i src -o dist",
     "test": "vitest run",
+    "demo:keep-alive": "vite --config examples/keep-alive-demo/vite.config.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

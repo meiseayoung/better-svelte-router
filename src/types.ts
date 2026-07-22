@@ -17,6 +17,37 @@ export type LazyComponent = () => Promise<{ default: Component | Snippet }>;
 // ============================================================================
 
 /**
+ * Keep-alive cache key strategy.
+ * - `path`: one cached instance per route pattern (e.g. `/users/:id`)
+ * - `full`: one cached instance per resolved pathname (e.g. `/users/1`)
+ */
+export type KeepAliveKeyMode = 'path' | 'full';
+
+/**
+ * Options for mount-based route keep-alive.
+ * Inactive routes stay mounted; their DOM is parked outside the document
+ * so local component state does not need to be lifted out.
+ */
+export interface KeepAliveOptions {
+  /**
+   * Cache key strategy. Defaults to `'path'`.
+   * Prefer `'path'` for tab-style sibling pages; use `'full'` when each
+   * resolved URL should keep its own instance (e.g. per-id drafts).
+   */
+  key?: KeepAliveKeyMode;
+  /**
+   * Max cached instances for this route within a RouterView outlet.
+   * Oldest inactive entries are evicted (LRU). Defaults to `10`.
+   */
+  max?: number;
+  /**
+   * When true, nested `RouterView` children inherit keep-alive (same key/max)
+   * unless a child sets `meta.keepAlive` explicitly (`false` opts out).
+   */
+  deep?: boolean;
+}
+
+/**
  * Route meta information for arbitrary metadata.
  * Can be used for page titles, authentication requirements, permissions, etc.
  * @example
@@ -31,6 +62,15 @@ export interface RouteMeta {
   title?: string;
   /** Whether the route requires authentication */
   requiresAuth?: boolean;
+  /**
+   * Keep this route's component mounted after leaving (sibling outlet cache).
+   * - `true` / options: enable keep-alive
+   * - `false`: explicit opt-out (also stops `deep` inheritance)
+   * - omit: inherit from an ancestor with `keepAlive.deep: true`, else off
+   *
+   * Inactive instances are parked off-document (not destroyed).
+   */
+  keepAlive?: boolean | KeepAliveOptions;
   /** Allow arbitrary additional metadata */
   [key: string]: unknown;
 }

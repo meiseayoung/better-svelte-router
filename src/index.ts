@@ -66,6 +66,18 @@
  */
 export { default as RouterView } from './router-view.svelte';
 
+/**
+ * Keep-alive helpers for mount-based route caching.
+ *
+ * - `getRouteAlive` / `isRouteActive`: read active status inside a cached page
+ * - `whileRouteActive`: run timers/subscriptions only while the route is active
+ */
+export {
+  getRouteAlive,
+  isRouteActive,
+} from './keep-alive';
+export { whileRouteActive } from './while-route-active.svelte.js';
+
 // ============================================================================
 // State
 // ============================================================================
@@ -182,6 +194,8 @@ export type {
   IRoute,
   IRouterViewProps,
   RouteMeta,
+  KeepAliveOptions,
+  KeepAliveKeyMode,
   
   // Component types
   LazyComponent,
@@ -205,3 +219,5 @@ export type {
   RouterModeConfig,
   IRouterModeAdapter,
 } from './types';
+
+export type { RouteAliveContext } from './keep-alive';
