@@ -1,4 +1,9 @@
 import type { RouterMode, RouterModeConfig, IRouterModeAdapter } from './types';
+import {
+  pushHistoryUrl,
+  replaceHistoryUrl,
+  supportsReliableHashReplaceState,
+} from './history-api';
 
 // Re-export types for convenience
 export type { RouterMode, RouterModeConfig, IRouterModeAdapter };
@@ -67,30 +72,27 @@ export class HistoryModeAdapter implements IRouterModeAdapter {
   /**
    * Navigate to a new path using pushState.
    * Adds a new entry to the browser history.
+   * Falls back to `location.assign` if pushState throws (e.g. Safari quota).
    * @param path - Route path to navigate to
    * @param search - Optional query string
    */
   push(path: string, search: string = ''): void {
-    const url = this.buildUrl(path, search);
-    window.history.pushState({ timestamp: Date.now() }, '', url);
+    pushHistoryUrl(this.buildUrl(path, search));
   }
 
   /**
    * Navigate to a new path using replaceState.
    * Replaces the current entry in browser history.
    *
-   * Preserves the existing history.state (only refreshing `timestamp`). Because
-   * replace() does not change the logical history position, keeping the current
-   * position tag lets RouterState skip its follow-up tagging replaceState, so
-   * replace() issues a single replaceState instead of two back-to-back calls
-   * (which some PC/desktop webviews reload on).
+   * Preserves the existing history.state (only refreshing `timestamp`) in the
+   * same write — including the router's position tag — so RouterState's
+   * follow-up tagging replaceState is a no-op. Falls back to `location.replace`
+   * if replaceState throws (vue-router-style try/catch).
    * @param path - Route path to navigate to
    * @param search - Optional query string
    */
   replace(path: string, search: string = ''): void {
-    const url = this.buildUrl(path, search);
-    const prev = (window.history.state as Record<string, unknown> | null) ?? {};
-    window.history.replaceState({ ...prev, timestamp: Date.now() }, '', url);
+    replaceHistoryUrl(this.buildUrl(path, search));
   }
 
   /**
@@ -195,29 +197,46 @@ export class HashModeAdapter implements IRouterModeAdapter {
   /**
    * Navigate to a new path, replacing the current history entry.
    *
-   * Uses history.replaceState with a fragment-only URL diff (see buildUrl) and
-   * preserves the existing history.state. Because replace() does not change the
-   * logical history position, keeping the current position tag lets RouterState
-   * skip its follow-up tagging replaceState, so replace() issues a SINGLE
-   * replaceState (the pre-regression profile) instead of two back-to-back calls,
-   * which some PC/desktop webviews reload on.
+   * Aligned with vue-router:
+   *   1. Prefer a single `history.replaceState` that preserves `history.state`
+   *      (including the position tag) so RouterState does not need a second
+   *      tagging replaceState.
+   *   2. try/catch → fall back to `location.replace` when replaceState throws.
+   *
+   * Android is an additional known-unreliable environment (BF list often not
+   * updated for hash-only replaceState), so it skips straight to
+   * `location.replace` — same idea as vue-router 3's Android pushState blacklist.
+   * RouterState then tags position with one same-URL replaceState so cancel-back
+   * can still use history.go(delta).
    * @param path - Route path to navigate to
    * @param search - Optional query string
    */
   replace(path: string, search: string = ''): void {
     const url = this.buildUrl(path, search);
-    const prev = (window.history.state as Record<string, unknown> | null) ?? {};
-    window.history.replaceState({ ...prev, timestamp: Date.now() }, '', url);
+    if (!supportsReliableHashReplaceState()) {
+      window.location.replace(url);
+      return;
+    }
+    replaceHistoryUrl(url);
   }
 
   /**
-   * Set up a listener for hashchange events (browser back/forward or hash changes).
+   * Set up listeners for browser navigation in hash mode.
+   *
+   * Listens to both `hashchange` (primary) and `popstate`. Some Android
+   * WebViews fire popstate without a reliable hashchange on back/forward, so
+   * dual listening keeps browser-driven navigation in sync. RouterState
+   * dedupes when both fire for the same URL change.
    * @param callback - Function to call when navigation occurs
-   * @returns Cleanup function to remove the listener
+   * @returns Cleanup function to remove the listeners
    */
   setupListener(callback: () => void): () => void {
     window.addEventListener('hashchange', callback);
-    return () => window.removeEventListener('hashchange', callback);
+    window.addEventListener('popstate', callback);
+    return () => {
+      window.removeEventListener('hashchange', callback);
+      window.removeEventListener('popstate', callback);
+    };
   }
 }
 

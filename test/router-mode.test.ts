@@ -208,6 +208,81 @@ describe('Hash Mode URL Format (Property 8)', () => {
   });
 
   /**
+   * Regression: hash-mode replace prefers replaceState (position in same write),
+   * with location.replace as try/catch fallback — and forces that fallback on
+   * Android where hash replaceState is unreliable for the BF list.
+   */
+  it('should use location.replace for hash-mode replace on Android UA', () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+    );
+
+    const adapter = new HashModeAdapter();
+    const locationReplace = vi.fn();
+    Object.defineProperty(window.location, 'replace', {
+      configurable: true,
+      writable: true,
+      value: locationReplace,
+    });
+    const historyReplaceSpy = vi.spyOn(window.history, 'replaceState');
+
+    adapter.replace('/next', '?token=abc');
+
+    expect(locationReplace).toHaveBeenCalledTimes(1);
+    const calledWith = locationReplace.mock.calls[0][0] as string;
+    expect(calledWith).toBe(`${window.location.href.split('#')[0]}#/next?token=abc`);
+    expect(historyReplaceSpy).not.toHaveBeenCalled();
+
+    historyReplaceSpy.mockRestore();
+  });
+
+  it('should use replaceState for hash-mode replace on non-Android UA', () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+    );
+
+    const adapter = new HashModeAdapter();
+    const locationReplace = vi.fn();
+    Object.defineProperty(window.location, 'replace', {
+      configurable: true,
+      writable: true,
+      value: locationReplace,
+    });
+    const historyReplaceSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
+
+    adapter.replace('/next', '?token=abc');
+
+    expect(historyReplaceSpy).toHaveBeenCalledTimes(1);
+    expect(locationReplace).not.toHaveBeenCalled();
+
+    historyReplaceSpy.mockRestore();
+  });
+
+  it('should fall back to location.replace when hash-mode replaceState throws', () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+    );
+
+    const adapter = new HashModeAdapter();
+    const locationReplace = vi.fn();
+    Object.defineProperty(window.location, 'replace', {
+      configurable: true,
+      writable: true,
+      value: locationReplace,
+    });
+    vi.spyOn(window.history, 'replaceState').mockImplementation(() => {
+      throw new Error('quota');
+    });
+
+    adapter.replace('/next', '?token=abc');
+
+    expect(locationReplace).toHaveBeenCalledTimes(1);
+    expect(locationReplace.mock.calls[0][0]).toBe(
+      `${window.location.href.split('#')[0]}#/next?token=abc`
+    );
+  });
+
+  /**
    * Property 8 (continued): getMode returns 'hash'
    */
   it('should return hash as the mode', () => {
@@ -655,9 +730,9 @@ describe('Browser Navigation Event Handling (Property 11)', () => {
   });
 
   /**
-   * Property 11 (continued): Cleanup function removes the correct listener
+   * Property 11 (continued): Cleanup function removes the correct listeners
    */
-  it('should remove hashchange listener when cleanup is called in hash mode', () => {
+  it('should remove hashchange and popstate listeners when cleanup is called in hash mode', () => {
     fc.assert(
       fc.property(fc.integer({ min: 1, max: 5 }), (listenerCount) => {
         removeEventListenerSpy.mockClear();
@@ -674,11 +749,15 @@ describe('Browser Navigation Event Handling (Property 11)', () => {
         // Call all cleanups
         cleanups.forEach((cleanup) => cleanup());
 
-        // Verify hashchange listeners were removed
+        // Verify both listeners were removed for each setupListener call
         const hashchangeRemoveCalls = removeEventListenerSpy.mock.calls.filter(
           (call) => call[0] === 'hashchange'
         );
+        const popstateRemoveCalls = removeEventListenerSpy.mock.calls.filter(
+          (call) => call[0] === 'popstate'
+        );
         expect(hashchangeRemoveCalls.length).toBe(listenerCount);
+        expect(popstateRemoveCalls.length).toBe(listenerCount);
       }),
       { numRuns: 100 }
     );
@@ -747,6 +826,21 @@ describe('Browser Navigation Event Handling (Property 11)', () => {
   });
 
   /**
+   * Hash mode also listens to popstate for WebViews that fire it without a
+   * reliable hashchange on back/forward.
+   */
+  it('should invoke hash-mode callback when popstate event fires', () => {
+    const adapter = new HashModeAdapter();
+    const callback = vi.fn();
+
+    adapter.setupListener(callback);
+
+    window.dispatchEvent(new Event('popstate'));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  /**
    * Property 11 (continued): Multiple callbacks are all invoked
    */
   it('should invoke all registered callbacks when event fires', () => {
@@ -810,9 +904,9 @@ describe('Browser Navigation Event Handling (Property 11)', () => {
   });
 
   /**
-   * Property 11 (continued): Each mode uses correct event type exclusively
+   * Property 11 (continued): Each mode registers the expected event type(s)
    */
-  it('should use correct event type for each mode', () => {
+  it('should use correct event type(s) for each mode', () => {
     fc.assert(
       fc.property(
         fc.constantFrom('hash', 'history') as fc.Arbitrary<RouterMode>,
@@ -825,20 +919,22 @@ describe('Browser Navigation Event Handling (Property 11)', () => {
           
           adapter.setupListener(vi.fn());
 
-          const expectedEvent = mode === 'hash' ? 'hashchange' : 'popstate';
-          const unexpectedEvent = mode === 'hash' ? 'popstate' : 'hashchange';
-
-          // Should have added listener for expected event
-          const expectedCalls = addEventListenerSpy.mock.calls.filter(
-            (call) => call[0] === expectedEvent
+          const hashchangeCalls = addEventListenerSpy.mock.calls.filter(
+            (call) => call[0] === 'hashchange'
           );
-          expect(expectedCalls.length).toBe(1);
-
-          // Should not have added listener for unexpected event
-          const unexpectedCalls = addEventListenerSpy.mock.calls.filter(
-            (call) => call[0] === unexpectedEvent
+          const popstateCalls = addEventListenerSpy.mock.calls.filter(
+            (call) => call[0] === 'popstate'
           );
-          expect(unexpectedCalls.length).toBe(0);
+
+          if (mode === 'hash') {
+            // Hash mode listens to both: hashchange (primary) and popstate
+            // (Android / inconsistent WebView back behaviour).
+            expect(hashchangeCalls.length).toBe(1);
+            expect(popstateCalls.length).toBe(1);
+          } else {
+            expect(popstateCalls.length).toBe(1);
+            expect(hashchangeCalls.length).toBe(0);
+          }
         }
       ),
       { numRuns: 100 }

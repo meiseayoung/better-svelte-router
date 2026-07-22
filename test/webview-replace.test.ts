@@ -2,20 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { routerState } from '../src/router-state.svelte';
 import { push, replace } from '../src/navigation';
 import { beforeEach as registerBeforeEach, clearGuards } from '../src/guards';
-import { createRouterMode, resetRouterMode } from '../src/router-mode';
+import { createRouterMode, getRouterMode, resetRouterMode } from '../src/router-mode';
 
 /**
- * Regression tests for the webview reload caused by a double history.replaceState.
+ * Regression tests for webview reload / Android BF-list bugs around replace().
  *
- * Commit 7379b3e added a follow-up replaceState (position tagging) after the
- * adapter's own replaceState, so programmatic replace() issued TWO back-to-back
- * history.replaceState calls in one turn — a pattern some PC/desktop webviews
- * reload on. The fix keeps replace() at a SINGLE replaceState: the adapter
- * preserves the (unchanged) position tag and the follow-up tagging is skipped.
- *
- * These tests count history.replaceState calls during a full replace() using
- * the real jsdom location (same-origin), which is what the webview reload
- * hinged on.
+ * Prefer a SINGLE history.replaceState that preserves the position tag.
+ * Hash mode on Android (or when replaceState throws) uses location.replace to
+ * fix the BF list, then one same-URL replaceState to restore __brsr_pos.
  */
 
 /** Flush pending microtasks/timers so async guard resolution settles. */
@@ -34,7 +28,6 @@ describe.each([
     resetRouterMode();
     createRouterMode({ mode });
     seedUrl();
-    // Rebind the listener to this mode and tag the current entry's position.
     routerState.reinitializeListener();
     await flush();
   });
@@ -48,19 +41,18 @@ describe.each([
   it('calls history.replaceState exactly once for a programmatic replace', async () => {
     registerBeforeEach(() => true);
 
-    // Spy AFTER setup so we only count the replace()'s own history writes.
     const spy = vi.spyOn(window.history, 'replaceState');
 
     await replace('/target');
     await flush();
 
     expect(spy).toHaveBeenCalledTimes(1);
+    expect(getRouterMode().getCurrentPath()).toBe('/target');
   });
 
   it('preserves the position tag across replace (so revert still works)', async () => {
     registerBeforeEach(() => true);
 
-    // Establish a committed, tagged entry via push.
     await push('/a');
     await flush();
     const posBefore = (window.history.state as { __brsr_pos?: number })?.__brsr_pos;
@@ -69,8 +61,112 @@ describe.each([
     await replace('/b');
     await flush();
 
-    // replace() keeps the logical position; the tag survives on the entry.
     const posAfter = (window.history.state as { __brsr_pos?: number })?.__brsr_pos;
     expect(posAfter).toBe(posBefore);
+  });
+});
+
+describe('hash replace fallbacks', () => {
+  beforeEach(async () => {
+    clearGuards();
+    resetRouterMode();
+    createRouterMode({ mode: 'hash' });
+    window.location.hash = '#/start';
+    routerState.reinitializeListener();
+    await flush();
+  });
+
+  afterEach(() => {
+    clearGuards();
+    vi.restoreAllMocks();
+    window.location.hash = '';
+  });
+
+  it('falls back to location.replace when replaceState throws, then tags position', async () => {
+    registerBeforeEach(() => true);
+
+    const posBefore = (window.history.state as { __brsr_pos?: number })?.__brsr_pos;
+    expect(typeof posBefore).toBe('number');
+
+    let adapterAttempts = 0;
+    vi.spyOn(window.history, 'replaceState').mockImplementation(function (
+      this: History,
+      data: unknown,
+      unused: string,
+      url?: string | URL | null
+    ) {
+      // First call is the adapter's replaceState (must fail → location.replace).
+      // Later calls are same-URL position tagging and must succeed.
+      if (adapterAttempts === 0) {
+        adapterAttempts++;
+        throw new Error('Safari quota exceeded');
+      }
+      return History.prototype.replaceState.call(this, data, unused, url as string);
+    });
+
+    await replace('/target');
+    await flush();
+
+    expect(getRouterMode().getCurrentPath()).toBe('/target');
+    expect(window.location.hash).toBe('#/target');
+    expect(adapterAttempts).toBe(1);
+    expect((window.history.state as { __brsr_pos?: number })?.__brsr_pos).toBe(posBefore);
+  });
+
+  it('uses location.replace on Android UA, then tags with one same-URL replaceState', async () => {
+    registerBeforeEach(() => true);
+
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36'
+    );
+
+    const posBefore = (window.history.state as { __brsr_pos?: number })?.__brsr_pos;
+    expect(typeof posBefore).toBe('number');
+
+    const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+    await replace('/target');
+    await flush();
+
+    expect(getRouterMode().getCurrentPath()).toBe('/target');
+    expect(window.location.hash).toBe('#/target');
+    // URL change via location.replace; only the position tag hits replaceState.
+    expect(replaceStateSpy).toHaveBeenCalledTimes(1);
+    expect((window.history.state as { __brsr_pos?: number })?.__brsr_pos).toBe(posBefore);
+  });
+});
+
+describe('hashchange + popstate coalescing', () => {
+  beforeEach(async () => {
+    clearGuards();
+    resetRouterMode();
+    createRouterMode({ mode: 'hash' });
+    window.location.hash = '#/home';
+    routerState.reinitializeListener();
+    await flush();
+  });
+
+  afterEach(() => {
+    clearGuards();
+    vi.restoreAllMocks();
+    window.location.hash = '';
+  });
+
+  it('runs beforeEach only once when hashchange and popstate fire together', async () => {
+    const guard = vi.fn(() => true);
+    registerBeforeEach(guard);
+
+    // Commit current entry so the next browser event is not treated as an echo.
+    await push('/a');
+    await flush();
+    guard.mockClear();
+
+    window.location.hash = '#/b';
+    window.dispatchEvent(new Event('popstate'));
+    window.dispatchEvent(new Event('hashchange'));
+    await flush();
+
+    expect(getRouterMode().getCurrentPath()).toBe('/b');
+    expect(guard).toHaveBeenCalledTimes(1);
   });
 });

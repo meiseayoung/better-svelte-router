@@ -98,6 +98,12 @@ class RouterState {
   #navToken = 0;
 
   /**
+   * Coalesces hashchange + popstate (hash mode listens to both) into one
+   * microtask so a single browser navigation does not run guards twice.
+   */
+  #browserNavScheduled = false;
+
+  /**
    * Derived pathname using router mode adapter.
    * In history mode: extracts from pathname
    * In hash mode: extracts from hash fragment
@@ -154,7 +160,7 @@ class RouterState {
   /**
    * Sets up the navigation event listener using the router mode adapter.
    * In history mode: listens to popstate event
-   * In hash mode: listens to hashchange event
+   * In hash mode: listens to hashchange and popstate events
    */
   #setupListener(): void {
     // Clean up any existing listener
@@ -204,9 +210,13 @@ class RouterState {
    * Handles browser-driven navigation (popstate / hashchange).
    * The URL has already changed by the time this fires, so guards run against
    * the new location and the URL is corrected if a guard cancels or redirects.
+   *
+   * Hash mode listens to both hashchange and popstate; some WebViews fire both
+   * for one back/forward. Coalesce to a single microtask so guards run once.
    */
   #onBrowserNavigation(): void {
     // Event caused by our own history.go() revert: swallow it and resync.
+    // Revert handling stays synchronous — do not defer behind the coalesce.
     if (this.#reverting) {
       this.#reverting = false;
       this.#syncCommitted();
@@ -222,10 +232,31 @@ class RouterState {
       return;
     }
 
-    const to = getRouterMode().getCurrentPath();
-    const from = this.#committedPath;
-    const targetPos = readHistoryPosition();
-    void this.#confirmNavigation(to, from, targetPos);
+    // Collapse hashchange + popstate (and any other duplicate browser events
+    // in the same turn) into one guard pass.
+    if (this.#browserNavScheduled) return;
+    this.#browserNavScheduled = true;
+    queueMicrotask(() => {
+      this.#browserNavScheduled = false;
+
+      if (this.#reverting) {
+        this.#reverting = false;
+        this.#syncCommitted();
+        const pos = readHistoryPosition();
+        if (pos !== null) this.#position = pos;
+        return;
+      }
+
+      if (this.#programmatic || window.location.href === this.#committedHref) {
+        this.#href = window.location.href;
+        return;
+      }
+
+      const to = getRouterMode().getCurrentPath();
+      const from = this.#committedPath;
+      const targetPos = readHistoryPosition();
+      void this.#confirmNavigation(to, from, targetPos);
+    });
   }
 
   /**
@@ -274,12 +305,19 @@ class RouterState {
         );
         return;
       }
+      // Mark as programmatic before mutating so a sync hashchange from
+      // location.replace (Android / replaceState fallback) is treated as an echo.
+      this.#programmatic = true;
       adapter.replace(result);
-      // Re-tag the entry at the redirect target's position (a no-op if the
-      // adapter preserved the correct tag).
+      // Re-tag the entry. replaceState path: preserves __brsr_pos → no-op.
+      // location.replace path: state was cleared → one same-URL replaceState
+      // restores the tag so cancel-back can still use history.go(delta).
       this.#position = effectivePos;
       writeHistoryPosition(this.#position);
+      this.#committedHref = window.location.href;
+      this.#committedPath = result;
       this.#href = window.location.href;
+      this.#programmatic = false;
       await this.#confirmNavigation(result, from, effectivePos, redirectCount + 1);
       return;
     }
@@ -369,7 +407,10 @@ class RouterState {
     if (!isReplace) {
       this.#position += 1;
     }
-    // push()/replace() overwrite history.state, so re-tag the entry.
+    // push(): new entry usually has null state (location.hash) → tag it.
+    // replace() via replaceState: __brsr_pos preserved → no-op.
+    // replace() via location.replace: state cleared → one same-URL replaceState
+    // restores the tag (does not change the BF URL already set by location.replace).
     writeHistoryPosition(this.#position);
 
     this.#committedPath = path;
