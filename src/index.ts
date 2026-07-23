@@ -70,16 +70,27 @@
 export { default as RouterView } from './router-view.svelte';
 
 /**
- * Keep-alive helpers for mount-based route caching.
+ * Experimental Vue-style `<KeepAlive>` (use with `keepAlivePreprocess`).
+ * Prefer `meta.keepAlive` on routes for router caching.
+ */
+export { default as KeepAlive } from './KeepAlive.svelte';
+
+/**
+ * Keep-alive helpers for mount-based route caching / experimental KeepAlive.
  *
  * - `getRouteAlive` / `isRouteActive`: read active status inside a cached page
  * - `whileRouteActive`: run timers/subscriptions only while the route is active
+ * - `onActivated` / `onDeactivated`: Vue-like activate hooks
  */
 export {
   getRouteAlive,
   isRouteActive,
+  shouldKeepAliveCache,
+  matchesKeepAlivePattern,
 } from './keep-alive';
+export type { KeepAliveMatchPattern } from './keep-alive';
 export { whileRouteActive } from './while-route-active.svelte.js';
+export { onActivated, onDeactivated } from './on-keep-alive.svelte.js';
 
 // ============================================================================
 // State

@@ -1,4 +1,5 @@
 import { getContext } from 'svelte';
+import type { Component } from 'svelte';
 import type { IRoute, KeepAliveKeyMode } from './types';
 
 /** Default max cached instances per keep-alive route in one outlet. */
@@ -25,6 +26,16 @@ export interface ResolvedKeepAlive {
   max: number;
   deep: boolean;
 }
+
+/**
+ * Vue-like include/exclude pattern: component name, cache key, RegExp, or
+ * component constructor reference (or an array of those).
+ */
+export type KeepAliveMatchPattern =
+  | string
+  | RegExp
+  | Component<any>
+  | ReadonlyArray<string | RegExp | Component<any>>;
 
 /**
  * Reads keep-alive options from route meta, optionally inheriting from an
@@ -72,6 +83,64 @@ export function buildKeepAliveCacheKey(
 }
 
 /**
+ * Whether `pattern` matches the given component name, cache key, and/or component ref.
+ */
+export function matchesKeepAlivePattern(
+  pattern: KeepAliveMatchPattern | undefined | null,
+  opts: {
+    name?: string;
+    component?: Component<any> | null;
+    cacheKey?: string;
+  }
+): boolean {
+  if (pattern == null) return false;
+  const list = Array.isArray(pattern) ? pattern : [pattern];
+  return list.some((p) => {
+    if (typeof p === 'string') {
+      return p === opts.name || p === opts.cacheKey;
+    }
+    if (p instanceof RegExp) {
+      return (
+        (opts.name != null && p.test(opts.name)) ||
+        (opts.cacheKey != null && p.test(opts.cacheKey))
+      );
+    }
+    return opts.component != null && p === opts.component;
+  });
+}
+
+/**
+ * Vue KeepAlive include/exclude rules:
+ * - `exclude` match → do not cache
+ * - `include` set and no match → do not cache
+ * - otherwise → cache
+ */
+export function shouldKeepAliveCache(
+  include: KeepAliveMatchPattern | undefined | null,
+  exclude: KeepAliveMatchPattern | undefined | null,
+  opts: {
+    name?: string;
+    component?: Component<any> | null;
+    cacheKey?: string;
+  }
+): boolean {
+  if (exclude != null && matchesKeepAlivePattern(exclude, opts)) return false;
+  if (include != null && !matchesKeepAlivePattern(include, opts)) return false;
+  return true;
+}
+
+/**
+ * Best-effort display name for a component (Svelte compile often sets `name`).
+ */
+export function getComponentDisplayName(
+  component: Component<any> | null | undefined
+): string | undefined {
+  if (!component) return undefined;
+  const anyComp = component as { name?: string; displayName?: string };
+  return anyComp.name || anyComp.displayName || undefined;
+}
+
+/**
  * LRU-ordered list of cache keys. Newest keys are at the end.
  * Evicts the oldest key that is not currently active when over `max`.
  */
@@ -109,6 +178,13 @@ export class KeepAliveLRU {
       this.#keys.splice(idx, 1);
     }
     return evicted;
+  }
+
+  /** Remove a key without touching recency of others. */
+  delete(key: string): boolean {
+    const before = this.#keys.length;
+    this.#keys = this.#keys.filter((k) => k !== key);
+    return this.#keys.length !== before;
   }
 }
 

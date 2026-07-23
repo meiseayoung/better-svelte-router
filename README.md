@@ -385,6 +385,62 @@ Or gate a manual `$effect` with `isRouteActive()` / `alive?.active` if you need 
 
 Try the interactive demo: `npm run demo:keep-alive`.
 
+### Experimental: Vue-style `<KeepAlive>` + preprocessor
+
+For **non-route** tab UIs, there is an experimental `KeepAlive` component plus a Svelte **markup preprocessor** that rewrites Vue-like usage into a cache-safe form (inspired by Vue Vapor: no VNode, but compile-time identity for branches).
+
+```svelte
+<script>
+  import { KeepAlive } from 'better-svelte-router';
+  let tab = $state('a');
+</script>
+
+<KeepAlive max={10}>
+  {#if tab === 'a'}
+    <PageA />
+  {:else if tab === 'b'}
+    <PageB />
+  {:else}
+    <PageC />
+  {/if}
+</KeepAlive>
+```
+
+Enable the preprocessor (Vite / `svelte.config`):
+
+```ts
+import { keepAlivePreprocess } from 'better-svelte-router/preprocess';
+
+svelte({
+  preprocess: [keepAlivePreprocess()],
+});
+```
+
+**Requirements / behavior**
+
+- Preprocess auto-discovers tags from `import { KeepAlive }` / `import { KeepAlive as KA }` (and subpaths like `better-svelte-router/...`). Aliased tags are rewritten without passing `tag:` in options.
+- Supported children: a single `{#if} / {:else if} / {:else}` chain, or a single `<svelte:component this={...} />`. Unsupported children are left unchanged (console warning) and the runtime **falls back to a normal render** (no cache, no blank screen).
+- Runtime props (also preserved by preprocess): `max`, `include` / `exclude` (name, cache key, `RegExp`, or component ref), and `cacheKey` (with `is={Component}` — separate instances of the same component).
+- Hooks inside cached pages: `onActivated` / `onDeactivated` (also work with route `meta.keepAlive`), plus existing `whileRouteActive` / `isRouteActive`.
+- Prefer **page components** inside branches. Inline markup that reads the switch variable can still update while parked; put switch-driven UI inside child components when possible.
+- Client-only (`document` park/restore). Does **not** replace `meta.keepAlive` for routing.
+
+```svelte
+<script>
+  import { KeepAlive, onActivated } from 'better-svelte-router';
+  import UserPage from './UserPage.svelte';
+  let id = $state('1');
+</script>
+
+<!-- Same component, different cache entries via cacheKey -->
+<KeepAlive is={UserPage} cacheKey={id} props={{ id }} max={5} />
+
+<!-- include / exclude (component refs or names / regex) -->
+<KeepAlive is={Current} include={[UserPage]} exclude={/Temp/} />
+```
+
+Demo (`npm run demo:keep-alive-component`): preprocess `{#if}`, dynamic `is`/`cacheKey`, and `include`/`exclude`.
+
 Use meta in guards:
 
 ```typescript
