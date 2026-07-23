@@ -239,3 +239,41 @@ export async function forward(): Promise<boolean> {
   window.history.forward();
   return true;
 }
+
+/**
+ * Hard-reloads the page via `location.reload()`, after persisting the current
+ * logical route into the browser URL.
+ *
+ * Use this when a full document reload is required (e.g. deploy rolled new
+ * assets and a lazy chunk 404s). Unlike calling `location.reload()` directly,
+ * memory mode (including `syncHash: false`) writes the current path/search
+ * into `location.hash` first so the refresh re-seeds the same route.
+ *
+ * Does not run navigation guards — the page is about to unload.
+ *
+ * @example
+ * // Lazy import failed after a deploy
+ * reload();
+ */
+export function reload(): void {
+  const adapter = getRouterMode();
+  const path = adapter.getCurrentPath();
+  const search = adapter.getCurrentSearch();
+  const url = adapter.buildUrl(path, search);
+
+  // Always persist before reload. Critical for memory mode when syncHash is
+  // false (hash may still be the bootstrap URL) and harmless otherwise.
+  if (window.location.href !== url) {
+    try {
+      const prev = (window.history.state as Record<string, unknown> | null) ?? {};
+      window.history.replaceState({ ...prev, timestamp: Date.now() }, '', url);
+    } catch {
+      // replaceState unavailable: navigating to the logical URL itself loads
+      // fresh assets, so a second reload is unnecessary.
+      window.location.replace(url);
+      return;
+    }
+  }
+
+  window.location.reload();
+}

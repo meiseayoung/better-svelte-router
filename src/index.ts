@@ -17,7 +17,7 @@
  * 
  * @example
  * // Programmatic navigation
- * import { push, replace, back, forward } from 'better-svelte-router';
+ * import { push, replace, back, forward, reload } from 'better-svelte-router';
  * 
  * // Navigate to a route
  * await push('/users');
@@ -27,6 +27,9 @@
  * 
  * // Replace current history entry
  * await replace('/login');
+ *
+ * // Hard-reload (persists current route first — safe in memory mode)
+ * reload();
  * 
  * @example
  * // Navigation guards
@@ -107,9 +110,10 @@ export { routerState } from './router-state.svelte';
  * - `replace`: Navigate without adding history entry
  * - `back`: Go back in history
  * - `forward`: Go forward in history
+ * - `reload`: Hard-reload the page (persists current route first)
  * - `buildSearchString`: Utility to build query strings
  */
-export { push, replace, back, forward, buildSearchString } from './navigation';
+export { push, replace, back, forward, reload, buildSearchString } from './navigation';
 
 // ============================================================================
 // Guards

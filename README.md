@@ -163,7 +163,7 @@ Use `back()` / `forward()` (not the system back button alone) so navigation goes
 ## Programmatic Navigation
 
 ```typescript
-import { push, replace, back, forward } from 'better-svelte-router';
+import { push, replace, back, forward, reload } from 'better-svelte-router';
 
 // Navigate to a new route (adds history entry)
 await push('/users');
@@ -180,9 +180,14 @@ await replace('/login');
 // History navigation (memory mode uses the in-memory stack)
 await back();
 await forward();
+
+// Hard-reload after a deploy / lazy-chunk miss (persists current route first)
+reload();
 ```
 
 `back()` / `forward()` return `Promise<boolean>`: `false` when cancelled by a guard, out of bounds (memory mode), or otherwise unable to move; otherwise `true`.
+
+`reload()` performs a real `location.reload()`. Before reloading it writes the current logical route into the browser URL, so memory mode (even with `syncHash: false`) re-seeds the same path after refresh. Prefer `reload()` over bare `location.reload()` when recovering from stale lazy chunks after a deploy.
 
 ## Navigation Guards
 
@@ -572,7 +577,7 @@ Access route parameters in components:
 ### Navigation Functions
 
 ```typescript
-import { push, replace, back, forward, buildSearchString } from 'better-svelte-router';
+import { push, replace, back, forward, reload, buildSearchString } from 'better-svelte-router';
 
 // Navigate to a new route (`to` may include `?query`)
 push(to: RoutePath, query?: QueryParams): Promise<boolean>
@@ -585,6 +590,9 @@ back(): Promise<boolean>
 
 // Go forward (memory mode: in-memory stack; otherwise browser history)
 forward(): Promise<boolean>
+
+// Hard-reload the page (persists current route, then location.reload)
+reload(): void
 
 // Build query string
 buildSearchString(query?: QueryParams): string

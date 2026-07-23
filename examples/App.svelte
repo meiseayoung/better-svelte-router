@@ -6,7 +6,8 @@
   import { 
     RouterView, 
     routerState, 
-    createRouterMode 
+    createRouterMode,
+    reload,
   } from 'better-svelte-router';
   import { routes } from './routes';
   import { setupAuthGuard } from './guards/auth';
@@ -40,7 +41,7 @@
   <div class="error-container">
     <h2>Failed to Load</h2>
     <p>{err.message}</p>
-    <button onclick={() => location.reload()}>Retry</button>
+    <button onclick={() => reload()}>Retry</button>
   </div>
 {/snippet}
 

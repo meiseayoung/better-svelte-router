@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { routerState } from '../src/router-state.svelte';
-import { push, replace, back, forward } from '../src/navigation';
+import { push, replace, back, forward, reload } from '../src/navigation';
 import { beforeEach as registerBeforeEach, clearGuards } from '../src/guards';
 import {
   createRouterMode,
@@ -138,5 +138,28 @@ describe('memory mode navigation', () => {
   it('back returns false at the bottom of the stack', async () => {
     registerBeforeEach(() => true);
     expect(await back()).toBe(false);
+  });
+
+  it('reload persists the current route into the hash before hard reload', async () => {
+    registerBeforeEach(() => true);
+
+    await push('/a');
+    await flush();
+    await push('/b?q=1');
+    await flush();
+
+    // syncHash: false — browser hash still reflects the bootstrap URL
+    expect(window.location.hash).toBe('#/start');
+
+    const replaceSpy = vi.spyOn(window.history, 'replaceState');
+    // jsdom logs "Not implemented: navigation" for location.reload()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    reload();
+    consoleError.mockRestore();
+
+    expect(replaceSpy).toHaveBeenCalled();
+    const lastUrl = replaceSpy.mock.calls.at(-1)?.[2] as string;
+    expect(lastUrl).toContain('#/b?q=1');
+    expect(window.location.hash).toBe('#/b?q=1');
   });
 });
