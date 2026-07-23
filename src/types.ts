@@ -323,6 +323,17 @@ export interface RouterModeConfig {
    * changes are still ignored. Defaults to true.
    */
   syncHash?: boolean;
+  /**
+   * memory mode only: initial in-memory history stack (React Router-style).
+   * Entries may include a query string (`'/list?type=staff'`). When omitted,
+   * the stack is seeded once from `location.hash`.
+   */
+  initialEntries?: string[];
+  /**
+   * memory mode only: index into `initialEntries` to start at.
+   * Defaults to the last entry.
+   */
+  initialIndex?: number;
 }
 
 /**
@@ -357,4 +368,11 @@ export interface IRouterModeAdapter {
   go?(delta: number): boolean;
   /** memory mode: path at index+delta, or null if out of bounds. */
   peekPath?(delta: number): string | null;
+  /**
+   * memory mode: snapshot of the in-memory stack as path strings
+   * (query embedded when present), for app-managed persistence.
+   */
+  getEntries?(): string[];
+  /** memory mode: current index within `getEntries()`. */
+  getIndex?(): number;
 }

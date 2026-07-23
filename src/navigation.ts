@@ -241,13 +241,18 @@ export async function forward(): Promise<boolean> {
 }
 
 /**
- * Hard-reloads the page via `location.reload()`, after persisting the current
+ * Hard-reloads the page via `location.reload()`, after writing the current
  * logical route into the browser URL.
  *
  * Use this when a full document reload is required (e.g. deploy rolled new
  * assets and a lazy chunk 404s). Unlike calling `location.reload()` directly,
- * memory mode (including `syncHash: false`) writes the current path/search
- * into `location.hash` first so the refresh re-seeds the same route.
+ * memory mode (including `syncHash: false`) syncs the current path/search into
+ * `location.hash` first so the refresh re-seeds the same route.
+ *
+ * The in-memory back-stack is not persisted by the library. To keep
+ * `back()` / `forward()` after reload, snapshot `getEntries()` / `getIndex()`
+ * yourself and pass them back as `initialEntries` / `initialIndex` on boot
+ * (React Router-style).
  *
  * Does not run navigation guards — the page is about to unload.
  *
@@ -261,8 +266,8 @@ export function reload(): void {
   const search = adapter.getCurrentSearch();
   const url = adapter.buildUrl(path, search);
 
-  // Always persist before reload. Critical for memory mode when syncHash is
-  // false (hash may still be the bootstrap URL) and harmless otherwise.
+  // Critical for memory mode when syncHash is false (hash may still be the
+  // bootstrap URL); harmless when the URL already matches.
   if (window.location.href !== url) {
     try {
       const prev = (window.history.state as Record<string, unknown> | null) ?? {};

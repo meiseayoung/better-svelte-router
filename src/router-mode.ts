@@ -264,6 +264,11 @@ interface MemoryEntry {
   search: string;
 }
 
+function entryToPath(entry: MemoryEntry): string {
+  const path = entry.path.split('?')[0] || '/';
+  return `${path}${entry.search || ''}`;
+}
+
 /**
  * Memory mode: seed once from `location.hash` (native deep links like
  * `#/auth?token=…`), then keep the route stack in memory and ignore
@@ -272,6 +277,9 @@ interface MemoryEntry {
  *
  * Optional `syncHash` mirrors the current path into the hash via
  * `history.replaceState` for display only; inbound URL changes are ignored.
+ *
+ * Optional `initialEntries` / `initialIndex` (React Router-style) let the app
+ * seed or restore the stack; the library does not persist it across reloads.
  */
 export class MemoryModeAdapter implements IRouterModeAdapter {
   private syncHash: boolean;
@@ -281,9 +289,25 @@ export class MemoryModeAdapter implements IRouterModeAdapter {
   /**
    * @param _base - unused (hash fragment carries the path)
    * @param syncHash - mirror path into location.hash (default true)
+   * @param initialEntries - optional stack seed (path strings, may include `?query`)
+   * @param initialIndex - index into initialEntries (default: last)
    */
-  constructor(_base: string = '', syncHash: boolean = true) {
+  constructor(
+    _base: string = '',
+    syncHash: boolean = true,
+    initialEntries?: string[],
+    initialIndex?: number
+  ) {
     this.syncHash = syncHash;
+
+    if (initialEntries && initialEntries.length > 0) {
+      this.stack = initialEntries.map((entry) => splitPathSearch(entry || '/'));
+      const last = this.stack.length - 1;
+      const idx = initialIndex ?? last;
+      this.index = idx >= 0 && idx <= last ? idx : last;
+      return;
+    }
+
     const hash = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
     const seeded = splitPathSearch(hash || '/');
     this.stack = [{ path: seeded.path, search: seeded.search }];
@@ -306,6 +330,16 @@ export class MemoryModeAdapter implements IRouterModeAdapter {
     if (entry.search) return entry.search;
     const qi = entry.path.indexOf('?');
     return qi >= 0 ? entry.path.slice(qi) : '';
+  }
+
+  /** Current stack as path strings (query embedded when present). */
+  getEntries(): string[] {
+    return this.stack.map(entryToPath);
+  }
+
+  /** Current index within the in-memory stack. */
+  getIndex(): number {
+    return this.index;
   }
 
   buildUrl(path: string, search: string = ''): string {
@@ -396,7 +430,12 @@ export function createRouterMode(config: RouterModeConfig): IRouterModeAdapter {
   if (config.mode === 'hash') {
     currentAdapter = new HashModeAdapter(base);
   } else if (config.mode === 'memory') {
-    currentAdapter = new MemoryModeAdapter(base, config.syncHash !== false);
+    currentAdapter = new MemoryModeAdapter(
+      base,
+      config.syncHash !== false,
+      config.initialEntries,
+      config.initialIndex
+    );
   } else {
     currentAdapter = new HistoryModeAdapter(base);
   }

@@ -143,11 +143,20 @@ createRouterMode({ mode: 'memory', syncHash: true });
 
 // Same, but do not mirror the path back into location.hash
 createRouterMode({ mode: 'memory', syncHash: false });
+
+// React Router-style: seed (or restore) the in-memory stack yourself
+createRouterMode({
+  mode: 'memory',
+  initialEntries: ['/home', '/list?type=staff'],
+  initialIndex: 1,
+});
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `syncHash` | `true` | Mirror the current path into `location.hash` via `history.replaceState` for display/debugging. Inbound hash/popstate changes are still ignored. |
+| `initialEntries` | *(from hash)* | Optional stack of path strings (may include `?query`). When set, skips hash seeding. |
+| `initialIndex` | last entry | Index into `initialEntries` to start at. |
 
 Typical deep-link flow:
 
@@ -159,6 +168,37 @@ WebView opens  https://app/#/auth?token=…
 ```
 
 Use `back()` / `forward()` (not the system back button alone) so navigation goes through the in-memory stack and guards.
+
+The library does **not** persist the memory stack across hard reloads. If you need that (e.g. before `reload()`), snapshot and restore yourself:
+
+```typescript
+import { createRouterMode, getRouterMode, reload } from 'better-svelte-router';
+
+const STACK_KEY = 'app-memory-stack';
+
+// Boot
+const saved = sessionStorage.getItem(STACK_KEY);
+sessionStorage.removeItem(STACK_KEY);
+const snapshot = saved ? JSON.parse(saved) as { entries: string[]; index: number } : null;
+
+createRouterMode({
+  mode: 'memory',
+  initialEntries: snapshot?.entries,
+  initialIndex: snapshot?.index,
+});
+
+// Before hard reload (lazy-chunk miss, etc.)
+function hardReload() {
+  const adapter = getRouterMode();
+  if (adapter.getEntries && adapter.getIndex) {
+    sessionStorage.setItem(
+      STACK_KEY,
+      JSON.stringify({ entries: adapter.getEntries(), index: adapter.getIndex() })
+    );
+  }
+  reload();
+}
+```
 
 ## Programmatic Navigation
 
@@ -187,7 +227,7 @@ reload();
 
 `back()` / `forward()` return `Promise<boolean>`: `false` when cancelled by a guard, out of bounds (memory mode), or otherwise unable to move; otherwise `true`.
 
-`reload()` performs a real `location.reload()`. Before reloading it writes the current logical route into the browser URL, so memory mode (even with `syncHash: false`) re-seeds the same path after refresh. Prefer `reload()` over bare `location.reload()` when recovering from stale lazy chunks after a deploy.
+`reload()` performs a real `location.reload()`. Before reloading it writes the current logical route into the browser URL, so memory mode (even with `syncHash: false`) re-seeds the same path after refresh. It does **not** restore the in-memory back-stack — use `initialEntries` / `initialIndex` (and `getEntries()` / `getIndex()`) if your app needs that. Prefer `reload()` over bare `location.reload()` when recovering from stale lazy chunks after a deploy.
 
 ## Navigation Guards
 
@@ -591,7 +631,7 @@ back(): Promise<boolean>
 // Go forward (memory mode: in-memory stack; otherwise browser history)
 forward(): Promise<boolean>
 
-// Hard-reload the page (persists current route, then location.reload)
+// Hard-reload the page (syncs current route URL, then location.reload)
 reload(): void
 
 // Build query string
@@ -699,6 +739,10 @@ interface RouterModeConfig {
   base?: string;
   /** memory mode only: mirror path into location.hash (default true) */
   syncHash?: boolean;
+  /** memory mode only: seed/restore stack (React Router-style) */
+  initialEntries?: string[];
+  /** memory mode only: index into initialEntries (default: last) */
+  initialIndex?: number;
 }
 
 interface IRouterModeAdapter {
@@ -713,6 +757,10 @@ interface IRouterModeAdapter {
   go?(delta: number): boolean;
   /** memory mode: path at index+delta, or null if out of bounds */
   peekPath?(delta: number): string | null;
+  /** memory mode: snapshot stack as path strings */
+  getEntries?(): string[];
+  /** memory mode: current stack index */
+  getIndex?(): number;
 }
 ```
 

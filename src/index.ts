@@ -28,7 +28,7 @@
  * // Replace current history entry
  * await replace('/login');
  *
- * // Hard-reload (persists current route first — safe in memory mode)
+ * // Hard-reload (syncs current route URL first — safe in memory mode)
  * reload();
  * 
  * @example
@@ -110,7 +110,7 @@ export { routerState } from './router-state.svelte';
  * - `replace`: Navigate without adding history entry
  * - `back`: Go back in history
  * - `forward`: Go forward in history
- * - `reload`: Hard-reload the page (persists current route first)
+ * - `reload`: Hard-reload the page (syncs current route URL first)
  * - `buildSearchString`: Utility to build query strings
  */
 export { push, replace, back, forward, reload, buildSearchString } from './navigation';

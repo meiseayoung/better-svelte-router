@@ -71,6 +71,36 @@ describe('MemoryModeAdapter', () => {
     expect(adapter.getCurrentPath()).toBe('/list');
     expect(adapter.getCurrentSearch()).toBe('?type=staff');
   });
+
+  it('accepts initialEntries / initialIndex like React Router', () => {
+    const adapter = new MemoryModeAdapter('', false, ['/home', '/list?type=staff', '/detail'], 1);
+    expect(adapter.getCurrentPath()).toBe('/list');
+    expect(adapter.getCurrentSearch()).toBe('?type=staff');
+    expect(adapter.getEntries()).toEqual(['/home', '/list?type=staff', '/detail']);
+    expect(adapter.getIndex()).toBe(1);
+
+    expect(adapter.go(-1)).toBe(true);
+    expect(adapter.getCurrentPath()).toBe('/home');
+    expect(adapter.go(2)).toBe(true);
+    expect(adapter.getCurrentPath()).toBe('/detail');
+  });
+
+  it('defaults initialIndex to the last entry', () => {
+    const adapter = new MemoryModeAdapter('', false, ['/a', '/b']);
+    expect(adapter.getIndex()).toBe(1);
+    expect(adapter.getCurrentPath()).toBe('/b');
+  });
+
+  it('getEntries reflects push/replace mutations', () => {
+    const adapter = new MemoryModeAdapter('', false, ['/start']);
+    adapter.push('/a');
+    adapter.push('/b?q=1');
+    expect(adapter.getEntries()).toEqual(['/start', '/a', '/b?q=1']);
+    expect(adapter.getIndex()).toBe(2);
+
+    adapter.replace('/b?q=2');
+    expect(adapter.getEntries()).toEqual(['/start', '/a', '/b?q=2']);
+  });
 });
 
 describe('memory mode navigation', () => {
@@ -140,7 +170,7 @@ describe('memory mode navigation', () => {
     expect(await back()).toBe(false);
   });
 
-  it('reload persists the current route into the hash before hard reload', async () => {
+  it('reload syncs the current route into the hash without restoring stack', async () => {
     registerBeforeEach(() => true);
 
     await push('/a');
@@ -151,15 +181,37 @@ describe('memory mode navigation', () => {
     // syncHash: false — browser hash still reflects the bootstrap URL
     expect(window.location.hash).toBe('#/start');
 
-    const replaceSpy = vi.spyOn(window.history, 'replaceState');
-    // jsdom logs "Not implemented: navigation" for location.reload()
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     reload();
     consoleError.mockRestore();
 
-    expect(replaceSpy).toHaveBeenCalled();
-    const lastUrl = replaceSpy.mock.calls.at(-1)?.[2] as string;
-    expect(lastUrl).toContain('#/b?q=1');
     expect(window.location.hash).toBe('#/b?q=1');
+
+    // Fresh boot without initialEntries → single-entry stack from hash
+    createRouterMode({ mode: 'memory', syncHash: false });
+    routerState.reinitializeListener();
+    await flush();
+
+    expect(getRouterMode().getCurrentPath()).toBe('/b');
+    expect(getRouterMode().getEntries?.()).toEqual(['/b?q=1']);
+    expect(await back()).toBe(false);
+  });
+
+  it('createRouterMode accepts initialEntries for app-managed restore', async () => {
+    registerBeforeEach(() => true);
+    resetRouterMode();
+    createRouterMode({
+      mode: 'memory',
+      syncHash: false,
+      initialEntries: ['/home', '/a', '/b?q=1'],
+      initialIndex: 2,
+    });
+    routerState.reinitializeListener();
+    await flush();
+
+    expect(getRouterMode().getCurrentPath()).toBe('/b');
+    expect(await back()).toBe(true);
+    await flush();
+    expect(getRouterMode().getCurrentPath()).toBe('/a');
   });
 });
