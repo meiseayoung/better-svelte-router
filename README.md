@@ -324,7 +324,7 @@ const routes: IRoute[] = [
 
 ### Keep-alive (mount cache)
 
-Set `meta.keepAlive` so a route stays mounted when you navigate away. Inactive instances are **moved out of the document** into a detached parking node (Vue-style), so **local `$state` / DOM state does not need to be lifted out**. Keep-alive itself adds **zero DOM nodes**: it captures Svelte's `$$anchor`, `mount()`s the route into parking, and only moves the route's own nodes before that anchor.
+Set `meta.keepAlive` so a route stays mounted when you navigate away. Inactive instances are parked off-document inside a stable mount `host` (Vue-style), so **local `$state` / DOM state does not need to be lifted out**. Keep-alive itself adds **zero DOM nodes** to the outlet template: it captures Svelte's `$$anchor`, `mount()`s the route into a host, and re-parents that host before the anchor when active (never moving Svelte-owned children out from under the host).
 
 ```typescript
 const routes: IRoute[] = [
