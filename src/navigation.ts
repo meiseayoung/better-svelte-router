@@ -2,6 +2,7 @@ import type { RoutePath, QueryParams } from './types';
 import { routerState } from './router-state.svelte';
 import { runGuards, runAfterHooks } from './guards';
 import { getRouterMode } from './router-mode';
+import { buildHardReloadUrl } from './reload-url';
 
 /**
  * Navigation module for the router.
@@ -241,13 +242,12 @@ export async function forward(): Promise<boolean> {
 }
 
 /**
- * Hard-reloads the page via `location.reload()`, after writing the current
- * logical route into the browser URL.
+ * Hard-reloads the page for stale assets / lazy-chunk misses.
  *
- * Use this when a full document reload is required (e.g. deploy rolled new
- * assets and a lazy chunk 404s). Unlike calling `location.reload()` directly,
- * memory mode (including `syncHash: false`) syncs the current path/search into
- * `location.hash` first so the refresh re-seeds the same route.
+ * Android WebView often ignores `location.reload()` and only navigates when
+ * `location.replace(url)` receives a **different** URL. This always builds the
+ * current logical route URL, appends a document-level cache buster, then
+ * `location.replace`s — which both syncs memory-mode hash and forces a real load.
  *
  * The in-memory back-stack is not persisted by the library. To keep
  * `back()` / `forward()` after reload, snapshot `getEntries()` / `getIndex()`
@@ -264,21 +264,6 @@ export function reload(): void {
   const adapter = getRouterMode();
   const path = adapter.getCurrentPath();
   const search = adapter.getCurrentSearch();
-  const url = adapter.buildUrl(path, search);
-
-  // Critical for memory mode when syncHash is false (hash may still be the
-  // bootstrap URL); harmless when the URL already matches.
-  if (window.location.href !== url) {
-    try {
-      const prev = (window.history.state as Record<string, unknown> | null) ?? {};
-      window.history.replaceState({ ...prev, timestamp: Date.now() }, '', url);
-    } catch {
-      // replaceState unavailable: navigating to the logical URL itself loads
-      // fresh assets, so a second reload is unnecessary.
-      window.location.replace(url);
-      return;
-    }
-  }
-
-  window.location.reload();
+  const logicalUrl = adapter.buildUrl(path, search);
+  window.location.replace(buildHardReloadUrl(logicalUrl));
 }

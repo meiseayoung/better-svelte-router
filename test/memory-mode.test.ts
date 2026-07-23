@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { routerState } from '../src/router-state.svelte';
-import { push, replace, back, forward, reload } from '../src/navigation';
+import { push, replace, back, forward } from '../src/navigation';
 import { beforeEach as registerBeforeEach, clearGuards } from '../src/guards';
 import {
   createRouterMode,
@@ -170,7 +170,42 @@ describe('memory mode navigation', () => {
     expect(await back()).toBe(false);
   });
 
-  it('reload syncs the current route into the hash without restoring stack', async () => {
+  it('buildHardReloadUrl busts the document URL without touching the hash query', async () => {
+    const { buildHardReloadUrl, stripReloadCacheBustSearch } = await import('../src/reload-url');
+    expect(buildHardReloadUrl('https://app/index.html#/b?q=1', 123, 1)).toBe(
+      'https://app/index.html?_bsr_reload=123_1#/b?q=1'
+    );
+    expect(buildHardReloadUrl('https://app/path?x=1#/a', 123, 2)).toBe(
+      'https://app/path?x=1&_bsr_reload=123_2#/a'
+    );
+    // Replace prior bust instead of accumulating on repeated reload()
+    expect(buildHardReloadUrl('https://app/index.html?_bsr_reload=999_9#/b?q=1', 123, 3)).toBe(
+      'https://app/index.html?_bsr_reload=123_3#/b?q=1'
+    );
+    expect(buildHardReloadUrl('https://app/path?_bsr_reload=999_9&x=1#/a', 123, 4)).toBe(
+      'https://app/path?x=1&_bsr_reload=123_4#/a'
+    );
+    // Same timestamp still unique via seq
+    expect(buildHardReloadUrl('https://app/#/a', 50, 1)).not.toBe(
+      buildHardReloadUrl('https://app/#/a', 50, 2)
+    );
+    expect(stripReloadCacheBustSearch('?_bsr_reload=123_1')).toBe('');
+    expect(stripReloadCacheBustSearch('?page=1&_bsr_reload=123_1')).toBe('?page=1');
+  });
+
+  it('scrubReloadCacheBustFromLocation cleans the address bar via replaceState', async () => {
+    const { scrubReloadCacheBustFromLocation } = await import('../src/reload-url');
+    window.history.replaceState(null, '', '/app?page=1&_bsr_reload=99#/ignored');
+    const spy = vi.spyOn(window.history, 'replaceState');
+    scrubReloadCacheBustFromLocation();
+    expect(spy).toHaveBeenCalled();
+    const url = spy.mock.calls.at(-1)?.[2] as string;
+    expect(url).toContain('/app?page=1');
+    expect(url).not.toContain('_bsr_reload');
+    spy.mockRestore();
+  });
+
+  it('reload targets the logical memory URL with a document cache buster', async () => {
     registerBeforeEach(() => true);
 
     await push('/a');
@@ -178,23 +213,15 @@ describe('memory mode navigation', () => {
     await push('/b?q=1');
     await flush();
 
-    // syncHash: false — browser hash still reflects the bootstrap URL
-    expect(window.location.hash).toBe('#/start');
+    const adapter = getRouterMode();
+    const logical = adapter.buildUrl(adapter.getCurrentPath(), adapter.getCurrentSearch());
+    const { buildHardReloadUrl } = await import('../src/reload-url');
+    const target = buildHardReloadUrl(logical, 42, 7);
 
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    reload();
-    consoleError.mockRestore();
-
-    expect(window.location.hash).toBe('#/b?q=1');
-
-    // Fresh boot without initialEntries → single-entry stack from hash
-    createRouterMode({ mode: 'memory', syncHash: false });
-    routerState.reinitializeListener();
-    await flush();
-
-    expect(getRouterMode().getCurrentPath()).toBe('/b');
-    expect(getRouterMode().getEntries?.()).toEqual(['/b?q=1']);
-    expect(await back()).toBe(false);
+    expect(logical).toContain('#/b?q=1');
+    expect(target).toContain('_bsr_reload=42_7');
+    expect(target).toContain('#/b?q=1');
+    // jsdom cannot navigate non-hash location.replace; reload() uses the same helper.
   });
 
   it('createRouterMode accepts initialEntries for app-managed restore', async () => {

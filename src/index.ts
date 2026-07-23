@@ -110,7 +110,7 @@ export { routerState } from './router-state.svelte';
  * - `replace`: Navigate without adding history entry
  * - `back`: Go back in history
  * - `forward`: Go forward in history
- * - `reload`: Hard-reload the page (syncs current route URL first)
+ * - `reload`: Hard-reload via location.replace + document cache-bust
  * - `buildSearchString`: Utility to build query strings
  */
 export { push, replace, back, forward, reload, buildSearchString } from './navigation';

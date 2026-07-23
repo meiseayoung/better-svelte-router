@@ -4,6 +4,7 @@ import {
   replaceHistoryUrl,
   supportsReliableHashReplaceState,
 } from './history-api';
+import { stripReloadCacheBustSearch } from './reload-url';
 
 // Re-export types for convenience
 export type { RouterMode, RouterModeConfig, IRouterModeAdapter };
@@ -56,7 +57,8 @@ export class HistoryModeAdapter implements IRouterModeAdapter {
    * @returns Query string including '?' (e.g., '?page=1')
    */
   getCurrentSearch(): string {
-    return window.location.search;
+    // Strip reload() cache-bust so it never leaks into route query state.
+    return stripReloadCacheBustSearch(window.location.search);
   }
 
   /**

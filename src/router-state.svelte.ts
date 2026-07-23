@@ -1,6 +1,7 @@
 import type { RouteMeta } from './types';
 import { getRouterMode } from './router-mode';
 import { runGuards, runAfterHooks } from './guards';
+import { scrubReloadCacheBustFromLocation } from './reload-url';
 
 /** Maximum number of chained guard redirects before bailing out to avoid infinite loops. */
 const MAX_REDIRECTS = 10;
@@ -188,6 +189,10 @@ class RouterState {
     // Rebind the listener to the adapter chosen via createRouterMode(), since
     // the singleton is constructed with the default adapter before that runs.
     this.#setupListener();
+
+    // Drop reload() cache-bust from the address bar before syncing committed
+    // href (history + hash/memory document query).
+    scrubReloadCacheBustFromLocation();
     this.#syncCommitted();
 
     // Adopt an existing tagged position (survives refresh) or seed a new one so

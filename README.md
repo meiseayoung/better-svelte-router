@@ -227,7 +227,7 @@ reload();
 
 `back()` / `forward()` return `Promise<boolean>`: `false` when cancelled by a guard, out of bounds (memory mode), or otherwise unable to move; otherwise `true`.
 
-`reload()` performs a real `location.reload()`. Before reloading it writes the current logical route into the browser URL, so memory mode (even with `syncHash: false`) re-seeds the same path after refresh. It does **not** restore the in-memory back-stack — use `initialEntries` / `initialIndex` (and `getEntries()` / `getIndex()`) if your app needs that. Prefer `reload()` over bare `location.reload()` when recovering from stale lazy chunks after a deploy.
+`reload()` forces a document load via `location.replace` with a cache-busting query (`_bsr_reload`) on the document URL (before `#`). This is required on some Android WebViews where `location.reload()` is a no-op and `location.replace` only navigates when the URL string changes. Any prior `_bsr_reload` is replaced (not stacked), stripped from history-mode route search, and scrubbed from the address bar on router `start()`. Prefer `reload()` over bare `location.reload()` when recovering from stale lazy chunks after a deploy. It does **not** restore the in-memory back-stack — use `initialEntries` / `initialIndex` if your app needs that.
 
 ## Navigation Guards
 
@@ -631,7 +631,7 @@ back(): Promise<boolean>
 // Go forward (memory mode: in-memory stack; otherwise browser history)
 forward(): Promise<boolean>
 
-// Hard-reload the page (syncs current route URL, then location.reload)
+// Hard-reload via location.replace + document cache-bust (WebView-safe)
 reload(): void
 
 // Build query string
