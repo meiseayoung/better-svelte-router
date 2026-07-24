@@ -121,10 +121,19 @@ export { routerState } from './router-state.svelte';
  * - `replace`: Navigate without adding history entry
  * - `back`: Go back in history
  * - `forward`: Go forward in history
- * - `reload`: Hard-reload via location.replace + document cache-bust
+ * - `reload`: Hard-reload via chunk revalidate + location.replace + document cache-bust
  * - `buildSearchString`: Utility to build query strings
  */
 export { push, replace, back, forward, reload, buildSearchString } from './navigation';
+
+/**
+ * Lazy-chunk HEAD probe helpers (opt-in via `createRouterMode({ lazyHeadCheck: true })`).
+ *
+ * - `retryLazyLoad`: re-run HEAD + import for registered RouterViews
+ * - `LazyChunkError`: error passed to the RouterView `error` snippet (`err.retry()`, `err.reason`)
+ */
+export { retryLazyLoad, LazyChunkError } from './lazy-module-cache';
+export type { LazyChunkErrorReason } from './lazy-module-cache';
 
 // ============================================================================
 // Guards

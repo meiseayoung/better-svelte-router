@@ -3,6 +3,7 @@ import { routerState } from './router-state.svelte';
 import { runGuards, runAfterHooks } from './guards';
 import { getRouterMode } from './router-mode';
 import { buildHardReloadUrl } from './reload-url';
+import { revalidateFailedModules } from './lazy-module-cache';
 
 /**
  * Navigation module for the router.
@@ -249,15 +250,21 @@ export async function forward(): Promise<boolean> {
  * current logical route URL, appends a document-level cache buster, then
  * `location.replace`s — which both syncs memory-mode hash and forces a real load.
  *
+ * Before navigating, best-effort revalidates any lazy chunk URLs that failed
+ * earlier in this session (`fetch` with `cache: 'reload'`). That overwrites
+ * WKWebView / HTTP-cache sticky failures for the same chunk URL after the
+ * network recovers; document `_bsr_reload` alone does not change chunk URLs.
+ *
  * The in-memory back-stack is not persisted by the library. To keep
  * `back()` / `forward()` after reload, snapshot `getEntries()` / `getIndex()`
  * yourself and pass them back as `initialEntries` / `initialIndex` on boot
  * (React Router-style).
  *
  * Does not run navigation guards — the page is about to unload.
+ * Signature stays sync; revalidation runs then `replace` (or after timeout).
  *
  * @example
- * // Lazy import failed after a deploy
+ * // Lazy import failed after a deploy / offline
  * reload();
  */
 export function reload(): void {
@@ -265,5 +272,8 @@ export function reload(): void {
   const path = adapter.getCurrentPath();
   const search = adapter.getCurrentSearch();
   const logicalUrl = adapter.buildUrl(path, search);
-  window.location.replace(buildHardReloadUrl(logicalUrl));
+  const target = buildHardReloadUrl(logicalUrl);
+  void revalidateFailedModules().finally(() => {
+    window.location.replace(target);
+  });
 }

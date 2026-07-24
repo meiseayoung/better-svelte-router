@@ -334,6 +334,13 @@ export interface RouterModeConfig {
    * Defaults to the last entry.
    */
   initialIndex?: number;
+  /**
+   * When true, probe each lazy chunk with `HEAD` (+ unique `_bsr_probe`)
+   * before calling `import()`. If the probe fails, RouterView shows the
+   * error snippet without invoking `import()`, avoiding WKWebView sticky
+   * 404s on the module URL. Opt-in; default false.
+   */
+  lazyHeadCheck?: boolean;
 }
 
 /**

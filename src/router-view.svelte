@@ -14,6 +14,11 @@
   import KeepAliveBoundary from './keep-alive-boundary';
   import RouteComponent from './route-component.svelte';
   import RouterView from './router-view.svelte';
+  import { isLazyHeadCheckEnabled } from './router-mode';
+  import {
+    loadLazyComponent,
+    registerLazyRetryHandler,
+  } from './lazy-module-cache';
 
   /**
    * RouterView component - renders the matched route component based on current URL.
@@ -40,14 +45,22 @@
     keepAliveInherit = null,
   }: Props = $props();
 
+  /** Bumped on retry so `{#await}` leaves the catch branch and re-probes. */
+  let loadGeneration = $state(0);
+
   // Fallback trigger for the initial guard pass. The router state no longer
   // auto-starts on construction (that raced with `createRouterMode` under async
   // module loading). Apps that call `createRouterMode` start via that call; apps
   // that rely on the default history mode without calling it start here, once a
   // RouterView is mounted. `start()` is idempotent, so this is a no-op if the
   // initial guards already ran.
+  // Also register retryLazyLoad / LazyChunkError.retry handlers for this view.
   onMount(() => {
     routerState.start();
+    return registerLazyRetryHandler(() => {
+      lazyComponentCache.clear();
+      loadGeneration++;
+    });
   });
 
   /** Regex to detect lazy import functions (fast path) */
@@ -81,13 +94,36 @@
     return component.length === 0;
   }
 
+  function retryLazyComponent(lazyComponent: LazyComponent): void {
+    lazyComponentCache.delete(lazyComponent);
+    loadGeneration++;
+  }
+
   /**
    * Gets or creates a cached promise for lazy component loading.
    * Prevents re-fetching the same component on re-renders.
+   * Rejected promises are not kept: WKWebView / the module map may stick a
+   * failed response to the chunk URL; clearing lets a later attempt run again
+   * (and records the URL so `reload()` can revalidate before hard navigation).
+   *
+   * When `lazyHeadCheck` is enabled, HEAD-probes the chunk URL first so a
+   * missing file never calls `import()` (avoids sticky 404s in WKWebView).
    */
   function getLazyComponentPromise(lazyComponent: LazyComponent): Promise<{ default: any }> {
+    // Depend on loadGeneration so retries invalidate `{#await}`.
+    void loadGeneration;
+
     if (!lazyComponentCache.has(lazyComponent)) {
-      lazyComponentCache.set(lazyComponent, lazyComponent());
+      const retry = () => retryLazyComponent(lazyComponent);
+      const promise = loadLazyComponent(lazyComponent, {
+        headCheck: isLazyHeadCheckEnabled(),
+        retry,
+      }).catch((err) => {
+        lazyComponentCache.delete(lazyComponent);
+        throw err;
+      });
+
+      lazyComponentCache.set(lazyComponent, promise);
     }
     return lazyComponentCache.get(lazyComponent)!;
   }

@@ -409,6 +409,17 @@ export class MemoryModeAdapter implements IRouterModeAdapter {
 /** Current router mode adapter instance (singleton) */
 let currentAdapter: IRouterModeAdapter | null = null;
 
+/** Whether lazy chunks are HEAD-probed before `import()` (opt-in). */
+let lazyHeadCheckEnabled = false;
+
+/**
+ * Whether `lazyHeadCheck` was enabled via `createRouterMode`.
+ * @internal
+ */
+export function isLazyHeadCheckEnabled(): boolean {
+  return lazyHeadCheckEnabled;
+}
+
 /**
  * Create and initialize a router mode adapter.
  * Sets the global adapter instance based on the provided configuration.
@@ -425,9 +436,13 @@ let currentAdapter: IRouterModeAdapter | null = null;
  *
  * // Hybrid: seed from hash, then memory stack (WebView-safe)
  * createRouterMode({ mode: 'memory', syncHash: true });
+ *
+ * // HEAD-probe lazy chunks before import (WKWebView-safe Retry)
+ * createRouterMode({ mode: 'hash', lazyHeadCheck: true });
  */
 export function createRouterMode(config: RouterModeConfig): IRouterModeAdapter {
   const base = config.base ?? '';
+  lazyHeadCheckEnabled = !!config.lazyHeadCheck;
 
   if (config.mode === 'hash') {
     currentAdapter = new HashModeAdapter(base);
@@ -479,4 +494,5 @@ export function getRouterMode(): IRouterModeAdapter {
  */
 export function resetRouterMode(): void {
   currentAdapter = null;
+  lazyHeadCheckEnabled = false;
 }

@@ -88,6 +88,9 @@ createRouterMode({ mode: 'memory', syncHash: true });
 
 // With base path (history mode)
 createRouterMode({ mode: 'history', base: '/my-app' });
+
+// Optional: HEAD-probe lazy chunks before import() (WKWebView-safe Retry)
+createRouterMode({ mode: 'hash', lazyHeadCheck: true });
 ```
 
 ### 3. Use RouterView Component
@@ -227,7 +230,48 @@ reload();
 
 `back()` / `forward()` return `Promise<boolean>`: `false` when cancelled by a guard, out of bounds (memory mode), or otherwise unable to move; otherwise `true`.
 
-`reload()` forces a document load via `location.replace` with a cache-busting query (`_bsr_reload`) on the document URL (before `#`). This is required on some Android WebViews where `location.reload()` is a no-op and `location.replace` only navigates when the URL string changes. Any prior `_bsr_reload` is replaced (not stacked), stripped from history-mode route search, and scrubbed from the address bar on router `start()`. Prefer `reload()` over bare `location.reload()` when recovering from stale lazy chunks after a deploy. It does **not** restore the in-memory back-stack — use `initialEntries` / `initialIndex` if your app needs that.
+`reload()` forces a document load via `location.replace` with a cache-busting query (`_bsr_reload`) on the document URL (before `#`). This is required on some Android WebViews where `location.reload()` is a no-op and `location.replace` only navigates when the URL string changes. Any prior `_bsr_reload` is replaced (not stacked), stripped from history-mode route search, and scrubbed from the address bar on router `start()`.
+
+Before navigating, `reload()` also best-effort re-fetches any lazy chunk URLs that failed earlier in the session (`fetch` with `cache: 'reload'`). That matters on WKWebView (and the HTML module map): an offline failed `import()` can stick a bad response to the **same chunk URL**, and a document-only bust does not change those URLs—revalidate overwrites the bad cache once the network is back, then the hard navigation runs.
+
+The API stays `reload(): void`, but navigation is **not** synchronous: `location.replace` runs after revalidation settles (or after a **~3s** timeout if revalidation is still pending). With no remembered failures, replace still happens on the next microtask—not in the same turn as the `reload()` call. Prefer `reload()` over bare `location.reload()` for Retry after a lazy-load failure or stale chunks after a deploy. It does **not** restore the in-memory back-stack — use `initialEntries` / `initialIndex` if your app needs that.
+
+### Lazy HEAD check (WKWebView)
+
+Opt-in via `createRouterMode({ lazyHeadCheck: true })`. Before each lazy `import()`, the router issues a `HEAD` request to the chunk URL with a unique `_bsr_probe` query so the probe itself is never served from cache. If the probe fails (404 / network), RouterView shows the `error` snippet **without** calling `import()`, which avoids poisoning WKWebView's module map with a sticky failure.
+
+On failure the snippet receives a `LazyChunkError` (`Error` subclass) with:
+- `err.retry()` — re-run HEAD, then `import()` if the probe succeeds
+- `err.reason` — `'network'` (HEAD `fetch` threw), `'http'` (e.g. 404), or `'import'` (probe ok / skipped but `import()` failed)
+- `err.isNetwork` — shorthand for `err.reason === 'network'`
+- `err.status` — HTTP status when `reason === 'http'`, otherwise `null`
+
+You can also call `retryLazyLoad()` to retry all registered lazy loads.
+
+```svelte
+<script lang="ts">
+  import { RouterView, retryLazyLoad, LazyChunkError } from 'better-svelte-router';
+  import { routes } from './routes';
+</script>
+
+{#snippet error(err)}
+  <div class="error">
+    <p>
+      {err instanceof LazyChunkError && err.isNetwork
+        ? 'Network unavailable'
+        : err.message}
+    </p>
+    <button
+      onclick={() =>
+        err instanceof LazyChunkError ? err.retry() : retryLazyLoad()}
+    >
+      Retry
+    </button>
+  </div>
+{/snippet}
+
+<RouterView {routes} {error} />
+```
 
 ## Navigation Guards
 
@@ -687,11 +731,15 @@ back(): Promise<boolean>
 // Go forward (memory mode: in-memory stack; otherwise browser history)
 forward(): Promise<boolean>
 
-// Hard-reload via location.replace + document cache-bust (WebView-safe)
+// Hard-reload: revalidate failed lazy chunks, then location.replace + document cache-bust (WebView-safe).
+// Not sync: replace runs after revalidation (or ~3s timeout); with no failures, next microtask.
 reload(): void
 
 // Build query string
 buildSearchString(query?: QueryParams): string
+
+// Re-run HEAD probe + lazy import for mounted RouterViews (lazyHeadCheck)
+retryLazyLoad(): void
 ```
 
 ### Guard Functions
@@ -799,6 +847,8 @@ interface RouterModeConfig {
   initialEntries?: string[];
   /** memory mode only: index into initialEntries (default: last) */
   initialIndex?: number;
+  /** HEAD-probe lazy chunks before import() (default false; WKWebView-safe) */
+  lazyHeadCheck?: boolean;
 }
 
 interface IRouterModeAdapter {
