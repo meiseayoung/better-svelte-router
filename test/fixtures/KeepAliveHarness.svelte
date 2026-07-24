@@ -1,5 +1,5 @@
 <script lang="ts">
-  import KeepAlive from '../../src/KeepAlive.svelte';
+  import KeepAlive from '../../src/KeepAlive';
   import PageA from './KeepAlivePageA.svelte';
   import PageB from './KeepAlivePageB.svelte';
 

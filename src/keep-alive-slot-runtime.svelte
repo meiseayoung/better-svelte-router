@@ -7,13 +7,19 @@
   /**
    * Parking keep-alive slot (same host park/restore strategy as route keep-alive).
    * Deferred mount avoids Svelte #16695 inert trees after re-parenting.
+   *
+   * When `placementAnchor` is set (experimental `<KeepAlive>`), all slots share
+   * that stable insert point so no wrapper element is required in the parent.
    */
   interface Props {
     active: boolean;
     cacheKey: string;
     __bsrAnchor: Node;
-    /** Stable DOM parent for park/restore (preferred over anchor.parentNode). */
-    outlet?: HTMLElement | null;
+    /**
+     * Shared park/restore anchor from the parent KeepAlive boundary.
+     * Falls back to this slot's own `$$anchor` when omitted.
+     */
+    placementAnchor?: Node | null;
     children?: Snippet<[string | number]>;
     branchKey?: string | number;
     component?: Component<any> | null;
@@ -24,7 +30,7 @@
     active,
     cacheKey,
     __bsrAnchor,
-    outlet = null,
+    placementAnchor = null,
     children,
     branchKey = 0,
     component = null,
@@ -35,6 +41,7 @@
   const aliveCtx = $state({ active: false });
 
   const parking = document.createElement('div');
+  /** Stable mount target; this is the only node we re-parent. */
   const host = document.createElement('div');
   host.style.width = '100%';
   host.style.height = '100%';
@@ -42,6 +49,7 @@
 
   let instance: Record<string, any> | null = null;
   let mounting = false;
+  /** Parent we took the host from / must put it back into. */
   let outletParent: ParentNode | null = null;
   let destroyed = false;
 
@@ -52,12 +60,12 @@
     componentProps: {} as Record<string, unknown>,
   });
 
+  function resolvePlacementAnchor(): Node {
+    return placementAnchor ?? __bsrAnchor;
+  }
+
   function resolveOutletParent(): ParentNode | null {
-    if (outlet) {
-      outletParent = outlet;
-      return outlet;
-    }
-    const live = __bsrAnchor.parentNode;
+    const live = resolvePlacementAnchor().parentNode;
     if (live) {
       outletParent = live;
       return live;
@@ -67,14 +75,15 @@
 
   function restoreToOutlet(): boolean {
     const parent = resolveOutletParent();
+    const anchor = resolvePlacementAnchor();
     if (!parent) return false;
 
     parking.dataset.bsrKeepAliveParking = cacheKey;
     host.dataset.bsrKeepAliveHost = cacheKey;
     host.dataset.bsrKeepAliveActive = '1';
 
-    if (__bsrAnchor.parentNode === parent) {
-      parent.insertBefore(host, __bsrAnchor);
+    if (anchor.parentNode === parent) {
+      parent.insertBefore(host, anchor);
     } else {
       parent.appendChild(host);
     }
@@ -83,10 +92,9 @@
 
   function parkFromOutlet(): void {
     host.dataset.bsrKeepAliveActive = '0';
-    if (outlet) {
-      outletParent = outlet;
-    } else if (__bsrAnchor.parentNode) {
-      outletParent = __bsrAnchor.parentNode;
+    const anchor = resolvePlacementAnchor();
+    if (anchor.parentNode) {
+      outletParent = anchor.parentNode;
     } else if (host.parentNode && host.parentNode !== parking) {
       outletParent = host.parentNode;
     }
@@ -139,8 +147,8 @@
 
   $effect(() => {
     const isActive = active;
-    // Re-run when `outlet` binds after first paint so restore can succeed.
-    void outlet;
+    // Re-run if the shared KeepAlive anchor becomes available / moves.
+    void placementAnchor;
     untrack(() => {
       ensureMounted();
       if (instance) syncPlacement(isActive);

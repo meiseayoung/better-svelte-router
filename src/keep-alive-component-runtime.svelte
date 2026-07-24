@@ -11,14 +11,19 @@
   import KeepAliveSlot from './keep-alive-slot';
 
   /**
-   * Experimental Vue-style KeepAlive (pair with `keepAlivePreprocess`).
+   * Experimental Vue-style KeepAlive runtime (pair with `keepAlivePreprocess`).
    *
    * Modes:
    * - Snippet: `activeKey` + `children(key)` (preprocessor rewrites `{#if}` into this)
    * - Dynamic: `is`/`this` + optional `props` + optional `cacheKey`
    * - Passthrough: children without `activeKey` / `this` → render without caching
+   *
+   * Placement uses the outer `$$anchor` from `KeepAlive.ts` so every slot shares
+   * one stable insert point — no wrapper element in the parent tree.
    */
   interface Props {
+    /** Captured by `KeepAlive.ts` — shared park/restore anchor. */
+    __bsrAnchor: Node;
     /** Active cache key (branch index / explicit key). `-1` / null = hide when caching. */
     activeKey?: string | number | null;
     /**
@@ -44,6 +49,7 @@
   }
 
   const {
+    __bsrAnchor,
     activeKey = null,
     cacheKey: explicitKey = null,
     is: isComponent = null,
@@ -110,8 +116,6 @@
 
   /** No cache config → plain render (preprocess miss / unsupported children). */
   const passthrough = $derived(Boolean(children) && !cachingConfigured);
-
-  let outletEl = $state<HTMLElement | null>(null);
 
   const branchKeyFor = (cacheKey: string): string | number => {
     if (cacheKey.startsWith('comp:') || cacheKey.startsWith('key:')) {
@@ -190,33 +194,31 @@
   <!-- Rewrite missed or unsupported children: render without caching. -->
   {@render children?.(0)}
 {:else}
-  <div class="bsr-keep-alive-root" bind:this={outletEl}>
-    {#each cacheKeys as cacheKey (cacheKey)}
-      <KeepAliveSlot
-        active={ephemeral == null && resolvedKey === cacheKey}
-        {cacheKey}
-        outlet={outletEl}
-        {children}
-        branchKey={branchKeyFor(cacheKey)}
-        component={
-          children
-            ? null
-            : (storedComponents[cacheKey] ??
-                (resolvedKey === cacheKey ? dynamicComponent : null))
-        }
-        componentProps={children ? {} : componentProps}
-      />
-    {/each}
-    {#if ephemeral}
-      <KeepAliveSlot
-        active={true}
-        cacheKey={ephemeral.cacheKey}
-        outlet={outletEl}
-        {children}
-        branchKey={ephemeral.branchKey}
-        component={children ? null : ephemeral.component}
-        componentProps={children ? {} : componentProps}
-      />
-    {/if}
-  </div>
+  {#each cacheKeys as cacheKey (cacheKey)}
+    <KeepAliveSlot
+      active={ephemeral == null && resolvedKey === cacheKey}
+      {cacheKey}
+      placementAnchor={__bsrAnchor}
+      {children}
+      branchKey={branchKeyFor(cacheKey)}
+      component={
+        children
+          ? null
+          : (storedComponents[cacheKey] ??
+              (resolvedKey === cacheKey ? dynamicComponent : null))
+      }
+      componentProps={children ? {} : componentProps}
+    />
+  {/each}
+  {#if ephemeral}
+    <KeepAliveSlot
+      active={true}
+      cacheKey={ephemeral.cacheKey}
+      placementAnchor={__bsrAnchor}
+      {children}
+      branchKey={ephemeral.branchKey}
+      component={children ? null : ephemeral.component}
+      componentProps={children ? {} : componentProps}
+    />
+  {/if}
 {/if}

@@ -468,6 +468,7 @@ svelte({
 - Hooks inside cached pages: `onActivated` / `onDeactivated` (also work with route `meta.keepAlive`), plus existing `whileRouteActive` / `isRouteActive`.
 - Prefer **page components** inside branches. Inline markup that reads the switch variable can still update while parked; put switch-driven UI inside child components when possible.
 - Client-only (`document` park/restore). Does **not** replace `meta.keepAlive` for routing.
+- **No wrapper element** in the parent tree: each cache slot captures Svelte's `$$anchor` and park/restores a mount `host` before that anchor (same strategy as route `meta.keepAlive`).
 
 ```svelte
 <script>

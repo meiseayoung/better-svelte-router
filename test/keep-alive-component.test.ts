@@ -60,6 +60,20 @@ describe('KeepAlive runtime', () => {
     expect(count()?.textContent).toBe('1');
   });
 
+  it('adds no KeepAlive wrapper element in the parent tree', async () => {
+    instance = mount(KeepAliveHarness, { target, props: {} });
+    await tick(5);
+
+    const harness = target.querySelector('[data-testid="harness"]');
+    expect(harness).toBeTruthy();
+    expect(harness?.querySelector('.bsr-keep-alive-root')).toBeNull();
+
+    const host = harness?.querySelector('[data-bsr-keep-alive-host]');
+    expect(host).toBeTruthy();
+    expect(host?.parentElement).toBe(harness);
+    expect(host?.querySelector('[data-testid="label"]')?.textContent).toBe('A');
+  });
+
   it('uses explicit cacheKey for separate instances of the same component', async () => {
     instance = mount(KeepAliveHarness, { target, props: {} });
     await tick(5);

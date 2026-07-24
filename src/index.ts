@@ -73,7 +73,7 @@ export { default as RouterView } from './router-view.svelte';
  * Experimental Vue-style `<KeepAlive>` (use with `keepAlivePreprocess`).
  * Prefer `meta.keepAlive` on routes for router caching.
  */
-export { default as KeepAlive } from './KeepAlive.svelte';
+export { default as KeepAlive } from './KeepAlive';
 
 /**
  * Keep-alive helpers for mount-based route caching / experimental KeepAlive.
