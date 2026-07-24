@@ -1,15 +1,18 @@
 # better-svelte-router
 
-A type-safe, reactive router for Svelte 5 applications using the runes API.
+A type-safe, reactive router for Svelte 5 applications using the runes API. The most powerful svelte router for Svelte 5.
 
 ## Features
 
 - 🚀 **Svelte 5 Runes** - Reactive state management with `$state` and `$derived`
 - 🔒 **Type Safe** - Full TypeScript support with route path autocompletion
 - 🛡️ **Navigation Guards** - `beforeEach` and `afterEach` hooks for route access control
-- 📦 **Lazy Loading** - Component lazy loading and code splitting support
-- 🔀 **Three Routing Modes** - Hash, History, and Memory (WebView-safe hybrid)
-- 📝 **Route Meta** - Attach custom metadata to routes
+- 📦 **Lazy Loading** - Component lazy loading and code splitting, with opt-in `lazyHeadCheck` for WKWebView-safe Retry
+- 🔀 **Three Routing Modes** - Hash, History, and Memory (WebView-safe hybrid with `initialEntries` / `syncHash`)
+- ♻️ **Route Keep-Alive** - `meta.keepAlive` parks route instances (zero outlet wrapper DOM; `deep` / `key` / `max`)
+- 🧩 **Experimental `<KeepAlive>`** - Vue-style non-route cache + `keepAlivePreprocess` (`{#if}` / `is` / `cacheKey`)
+- 🔄 **WebView-safe `reload()`** - Cache-busted `location.replace`, plus revalidation of failed lazy chunks
+- 📝 **Route Meta** - Attach custom metadata to routes (title, auth flags, keep-alive options, …)
 
 ## Installation
 
